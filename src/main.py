@@ -19,6 +19,7 @@ from hud import Hud
 from settings import SettingsManager
 from weather import WeatherSystem
 import datetime
+from notification_manager import NotificationManager # Assuming NotificationManager exists
 
 # Track key states
 key_t_pressed = False
@@ -34,14 +35,14 @@ last_hour_checked = datetime.datetime.now().hour
 
 if config["CHAT_CONTROL"] == True:
     print("Checking for live stream...")
-    
+
     # First try specific live stream ID if provided
     if config["LIVESTREAM_ID"] is not None and config["LIVESTREAM_ID"] != "":
         stream_id = validate_live_stream_id(config["LIVESTREAM_ID"])
         live_stream = get_live_stream(stream_id)
         if live_stream:
             print("Using specific live stream:", live_stream["snippet"]["title"])
-    
+
     # If no specific stream found, try to auto-detect live streams from channel
     if live_stream is None and config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != "":
         print("No specific live stream found. Attempting auto-detection...")
@@ -83,7 +84,7 @@ if config["CHAT_CONTROL"] == True:
         print("No subscribers count found. App will run without it.")
     else:
         print("Subscribers count found:", subscribers)
-        
+
     # get followers count (using view count as proxy for followers)
     if(config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != ""):
         from youtube import get_channel_stats
@@ -116,7 +117,7 @@ async def handle_youtube_poll():
             mega_tnt_queue.append("New Subscriber") # Add to mega tnt queue
             rainbow_explosion_queue.append("New Subscriber Rainbow") # Add rainbow explosion
             subscribers = new_subscribers # Update subscriber count
-            
+
     # Check follower milestones
     if followers is not None and config["CHANNEL_ID"] is not None:
         from youtube import get_channel_stats
@@ -128,7 +129,7 @@ async def handle_youtube_poll():
                 golden_ore_shower_queue.append(f"{current_milestone} Followers")
                 last_follower_milestone = current_milestone
                 followers = current_followers
-                
+
     # Check for hourly events
     current_hour = datetime.datetime.now().hour
     if current_hour != last_hour_checked:
@@ -193,17 +194,17 @@ async def handle_youtube_poll():
              if author not in [entry[0] for entry in pickaxe_queue]:
                  pickaxe_queue.append((author, "netherite_pickaxe"))
                  print(f"Added {author} to Pickaxe queue (netherite_pickaxe)")
-                 
+
         # Check for rainbow command
         if "rainbow" in text_lower and author not in rainbow_queue:
             rainbow_queue.append(author)
             print(f"Added {author} to Rainbow queue")
-            
+
         # Check for shield command  
         if "shield" in text_lower and author not in shield_queue:
             shield_queue.append(author)
             print(f"Added {author} to Shield queue")
-            
+
         # Check for freeze command
         if "freeze" in text_lower and author not in freeze_queue:
             freeze_queue.append(author)
@@ -310,10 +311,13 @@ def game():
 
     # Explosions
     explosions = []
-    
+
     # Settings and Weather
     settings_manager = SettingsManager()
     weather_system = WeatherSystem()
+    
+    # Notifications (assuming this is where it should be initialized)
+    notification_manager = NotificationManager()
 
     # Youtube
     yt_poll_interval = 1000 * config["YT_POLL_INTERVAL_SECONDS"]
@@ -419,10 +423,10 @@ def game():
         # Update all TNTs
         for tnt in tnt_list:
             tnt.update(tnt_list, explosions, camera)
-            
+
         # Update weather system
         weather_system.update(settings_manager)
-        
+
         # Update settings (including auto performance mode)
         settings_manager.update(clock.get_fps())
 
@@ -487,19 +491,19 @@ def game():
                 pickaxe.pickaxe(pickaxe_type, texture_atlas, atlas_items)
                 last_random_pickaxe = current_time
                 random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
-                
+
             # Handle Rainbow command
             if rainbow_queue:
                 author = rainbow_queue.pop(0)
                 print(f"Activating rainbow mode for {author}")
                 pickaxe.activate_rainbow_mode(15000)  # 15 seconds
-                
+
             # Handle Shield command
             if shield_queue:
                 author = shield_queue.pop(0)
                 print(f"Activating shield for {author}")
                 pickaxe.activate_shield(10000)  # 10 seconds
-                
+
             # Handle Freeze command
             if freeze_queue:
                 author = freeze_queue.pop(0)
@@ -507,7 +511,7 @@ def game():
                 # Temporarily reduce gravity and add upward force
                 old_velocity = pickaxe.body.velocity
                 pickaxe.body.velocity = (old_velocity.x * 0.1, -200)  # Slow and slight upward force
-                
+
             # Handle Golden Ore Shower (Follower Milestones)
             if golden_ore_shower_queue:
                 milestone = golden_ore_shower_queue.pop(0)
@@ -518,7 +522,7 @@ def game():
                     y_offset = random.randint(-200, -50)
                     # Create golden blocks that drop gold when broken
                     hud.amounts['gold_ingot'] += random.randint(5, 15)
-                    
+
             # Handle Rainbow Explosions (Subscriber Celebrations)  
             if rainbow_explosion_queue:
                 event_name = rainbow_explosion_queue.pop(0)
@@ -540,7 +544,7 @@ def game():
                         color.hsva = (hue, 100, 100, 100)
                         particle.color = color
                     explosions.append(rainbow_explosion)
-                    
+
             # Handle Hourly Events
             if hourly_event_queue:
                 event_name = hourly_event_queue.pop(0)
@@ -596,14 +600,17 @@ def game():
 
         # Draw weather effects
         weather_system.draw(internal_surface, camera, settings_manager)
-        
+
         # Draw HUD
         hud.draw(internal_surface, pickaxe.body.position.y, fast_slow_active, fast_slow, settings_manager)
 
         # Scale internal surface to fit the resized window
         scaled_surface = pygame.transform.smoothscale(internal_surface, (window_width, window_height))
         screen.blit(scaled_surface, (0, 0))
-        
+
+        # Draw notifications on the scaled screen
+        notification_manager.draw(screen, camera, window_width, window_height)
+
         # Draw settings panel (on top of scaled surface)
         settings_manager.draw(screen)
 
