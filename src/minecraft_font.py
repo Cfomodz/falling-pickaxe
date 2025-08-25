@@ -10,16 +10,28 @@ class MinecraftFont:
         self.small_font_size = 18
         self.large_font_size = 32
         
+        self.font = None
+        self.small_font = None
+        self.large_font = None
+        self._initialized = False
+    
+    def _initialize_fonts(self):
+        """Initialize fonts lazily when first needed"""
+        if self._initialized:
+            return
+            
+        # Ensure pygame.font is initialized
+        if not pygame.get_init():
+            pygame.init()
+        elif not pygame.font.get_init():
+            pygame.font.init()
+        
         # Try to find a suitable font
         minecraft_fonts = [
             "Minecraft.ttf",
             "MinecraftRegular.ttf", 
             "minecraft.ttf"
         ]
-        
-        self.font = None
-        self.small_font = None
-        self.large_font = None
         
         # Check if any Minecraft fonts exist in assets
         assets_dir = Path(__file__).parent / "assets"
@@ -55,9 +67,13 @@ class MinecraftFont:
             self.font = pygame.font.Font(None, self.font_size)
             self.small_font = pygame.font.Font(None, self.small_font_size)
             self.large_font = pygame.font.Font(None, self.large_font_size)
+        
+        self._initialized = True
     
     def render_with_shadow(self, text, color=(255, 255, 255), shadow_color=(0, 0, 0), size="normal"):
         """Render text with shadow for Minecraft-style appearance"""
+        self._initialize_fonts()
+        
         font = self.font
         if size == "small":
             font = self.small_font
