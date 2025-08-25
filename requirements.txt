@@ -1,6 +1,7 @@
-pygame==2.6.1
-pymunk==6.11.1
-google-api-python-client==2.110.0
-python-dateutil==2.8.2
-requests==2.31.0
-Pillow==10.1.0
+
+pygame>=2.1.0,<2.7.0
+pymunk>=6.2.0,<6.12.0
+google-api-python-client>=2.100.0,<2.120.0
+python-dateutil>=2.8.0,<2.9.0
+requests>=2.25.0,<2.32.0
+Pillow>=9.0.0,<11.0.0
