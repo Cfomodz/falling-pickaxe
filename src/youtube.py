@@ -5,6 +5,7 @@ from pathlib import Path
 from dateutil import parser
 import os
 import re
+import requests # Import requests library
 
 # Initialize YouTube API client
 youtube = build("youtube", "v3", developerKey=config["API_KEY"])
@@ -150,14 +151,43 @@ def get_new_live_chat_messages(live_chat_id):
     return messages
 
 def get_subscriber_count(channel_id):
-    """Get the subscriber count for a given channel ID."""
-    request = youtube.channels().list(
-        part="statistics",
-        id=channel_id
-    )
-    response = request.execute()
+    """Get the current subscriber count for a channel."""
+    if config["API_KEY"] == "YOUR_API_KEY_HERE" or config["API_KEY"] == "":
+        return None
 
-    if response["items"]:
-        return int(response["items"][0]["statistics"]["subscriberCount"])
-    else:
+    # Use the youtube object for consistency and better handling of API quotas
+    try:
+        request = youtube.channels().list(
+            part="statistics",
+            id=channel_id
+        )
+        response = request.execute()
+
+        if response.get("items"):
+            return int(response["items"][0]["statistics"]["subscriberCount"])
+        else:
+            return None
+    except Exception as e:
+        print(f"Error fetching subscriber count: {e}")
+        return None
+
+def get_channel_stats(channel_id):
+    """Get full channel statistics."""
+    if config["API_KEY"] == "YOUR_API_KEY_HERE" or config["API_KEY"] == "":
+        return None
+
+    # Use the youtube object for consistency and better handling of API quotas
+    try:
+        request = youtube.channels().list(
+            part="statistics",
+            id=channel_id
+        )
+        response = request.execute()
+
+        if response.get("items"):
+            return response["items"][0]["statistics"]
+        else:
+            return None
+    except Exception as e:
+        print(f"Error fetching channel stats: {e}")
         return None

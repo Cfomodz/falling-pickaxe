@@ -73,7 +73,7 @@ class Hud:
             self.combo_count = 0
             self.combo_multiplier = 1.0
 
-    def draw(self, screen, pickaxe_y, fast_slow_active, fast_slow):
+    def draw(self, screen, pickaxe_y, fast_slow_active, fast_slow, settings_manager=None):
         """
         Draws the HUD: each ore icon with its amount and other indicators.
         """
@@ -124,7 +124,8 @@ class Hud:
         
         # Update and draw combo counter
         self.update_combo()
-        if self.combo_count > 0:
+        show_combo = settings_manager is None or settings_manager.get_setting("combo_display")
+        if self.combo_count > 0 and show_combo:
             combo_text = f"COMBO: {self.combo_count}x ({self.combo_multiplier:.1f}x)"
             combo_color = (255, 255, 0) if self.combo_count >= 10 else (255, 255, 255)
             combo_surface = render_text_with_outline(combo_text, self.font, combo_color, (0, 0, 0), outline_width=2)

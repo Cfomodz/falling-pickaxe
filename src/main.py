@@ -16,6 +16,9 @@ import asyncio
 import threading
 import random
 from hud import Hud
+from settings import SettingsManager
+from weather import WeatherSystem
+import datetime
 
 # Track key states
 key_t_pressed = False
@@ -25,6 +28,9 @@ key_m_pressed = False
 live_stream = None
 live_chat_id = None
 subscribers = None
+followers = None
+last_follower_milestone = 0
+last_hour_checked = datetime.datetime.now().hour
 
 if config["CHAT_CONTROL"] == True:
     print("Checking for specific live stream")
@@ -56,6 +62,15 @@ if config["CHAT_CONTROL"] == True:
         print("No subscribers count found. App will run without it.")
     else:
         print("Subscribers count found:", subscribers)
+        
+    # get followers count (using view count as proxy for followers)
+    if(config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != ""):
+        from youtube import get_channel_stats
+        stats = get_channel_stats(config["CHANNEL_ID"])
+        if stats and 'viewCount' in stats:
+            followers = int(stats['viewCount']) // 1000  # Use view count / 1000 as follower approximation
+            last_follower_milestone = (followers // 100) * 100
+            print("Follower count approximation:", followers)
 
 # Queues for chat
 tnt_queue = []
@@ -67,15 +82,37 @@ mega_tnt_queue = []
 rainbow_queue = []
 shield_queue = []
 freeze_queue = []
+golden_ore_shower_queue = []
+rainbow_explosion_queue = []
+hourly_event_queue = []
 
 async def handle_youtube_poll():
-    global subscribers # Use global to modify the variable
+    global subscribers, followers, last_follower_milestone # Use global to modify the variable
 
     if subscribers is not None:
         new_subscribers = get_subscriber_count(config["CHANNEL_ID"])
         if new_subscribers is not None and new_subscribers > subscribers:
             mega_tnt_queue.append("New Subscriber") # Add to mega tnt queue
+            rainbow_explosion_queue.append("New Subscriber Rainbow") # Add rainbow explosion
             subscribers = new_subscribers # Update subscriber count
+            
+    # Check follower milestones
+    if followers is not None and config["CHANNEL_ID"] is not None:
+        from youtube import get_channel_stats
+        stats = get_channel_stats(config["CHANNEL_ID"])
+        if stats and 'viewCount' in stats:
+            current_followers = int(stats['viewCount']) // 1000
+            current_milestone = (current_followers // 100) * 100
+            if current_milestone > last_follower_milestone:
+                golden_ore_shower_queue.append(f"{current_milestone} Followers")
+                last_follower_milestone = current_milestone
+                followers = current_followers
+                
+    # Check for hourly events
+    current_hour = datetime.datetime.now().hour
+    if current_hour != last_hour_checked:
+        hourly_event_queue.append(f"Hourly Event {current_hour}:00")
+        last_hour_checked = current_hour
 
     new_messages = get_new_live_chat_messages(live_chat_id)
 
@@ -252,6 +289,10 @@ def game():
 
     # Explosions
     explosions = []
+    
+    # Settings and Weather
+    settings_manager = SettingsManager()
+    weather_system = WeatherSystem()
 
     # Youtube
     yt_poll_interval = 1000 * config["YT_POLL_INTERVAL_SECONDS"]
@@ -274,6 +315,8 @@ def game():
             if event.type == pygame.QUIT:  # Close window event
                 running = False
                 user_quit = True
+            elif settings_manager.handle_input(event):
+                continue  # Settings handled the input
             elif event.type == pygame.VIDEORESIZE:  # Window resize event
                 new_width, new_height = event.w, event.h
 
@@ -355,6 +398,12 @@ def game():
         # Update all TNTs
         for tnt in tnt_list:
             tnt.update(tnt_list, explosions, camera)
+            
+        # Update weather system
+        weather_system.update(settings_manager)
+        
+        # Update settings (including auto performance mode)
+        settings_manager.update(clock.get_fps())
 
         # Poll Yotutube api
         if live_chat_id is not None and current_time - last_yt_poll >= yt_poll_interval:
@@ -437,6 +486,60 @@ def game():
                 # Temporarily reduce gravity and add upward force
                 old_velocity = pickaxe.body.velocity
                 pickaxe.body.velocity = (old_velocity.x * 0.1, -200)  # Slow and slight upward force
+                
+            # Handle Golden Ore Shower (Follower Milestones)
+            if golden_ore_shower_queue:
+                milestone = golden_ore_shower_queue.pop(0)
+                print(f"🌟 GOLDEN ORE SHOWER! {milestone}")
+                # Spawn multiple golden ores around pickaxe
+                for i in range(20):
+                    x_offset = random.randint(-300, 300)
+                    y_offset = random.randint(-200, -50)
+                    # Create golden blocks that drop gold when broken
+                    hud.amounts['gold_ingot'] += random.randint(5, 15)
+                    
+            # Handle Rainbow Explosions (Subscriber Celebrations)  
+            if rainbow_explosion_queue:
+                event_name = rainbow_explosion_queue.pop(0)
+                print(f"🌈 RAINBOW EXPLOSION! {event_name}")
+                # Create spectacular rainbow explosions
+                for i in range(5):
+                    x_offset = random.randint(-200, 200)
+                    y_offset = random.randint(-150, -50)
+                    from explosion import Explosion
+                    rainbow_explosion = Explosion(
+                        pickaxe.body.position.x + x_offset,
+                        pickaxe.body.position.y + y_offset,
+                        75, texture_atlas, atlas_items
+                    )
+                    # Make it rainbow colored
+                    for particle in rainbow_explosion.particles:
+                        hue = random.randint(0, 360)
+                        color = pygame.Color(0)
+                        color.hsva = (hue, 100, 100, 100)
+                        particle.color = color
+                    explosions.append(rainbow_explosion)
+                    
+            # Handle Hourly Events
+            if hourly_event_queue:
+                event_name = hourly_event_queue.pop(0)
+                print(f"⏰ HOURLY SPECIAL EVENT! {event_name}")
+                # Random special hourly events
+                event_type = random.choice(["mega_tnt_shower", "diamond_rain", "speed_boost", "giant_pickaxe"])
+                if event_type == "mega_tnt_shower":
+                    for i in range(3):
+                        new_megatnt = MegaTnt(space, pickaxe.body.position.x + random.randint(-200, 200), 
+                                            pickaxe.body.position.y - random.randint(100, 300),
+                                            texture_atlas, atlas_items, sound_manager, owner_name="Hourly Event")
+                        tnt_list.append(new_megatnt)
+                elif event_type == "diamond_rain":
+                    hud.amounts['diamond'] += random.randint(10, 25)
+                elif event_type == "speed_boost":
+                    fast_slow_active = True
+                    fast_slow = "Fast"
+                    last_fast_slow = current_time
+                elif event_type == "giant_pickaxe":
+                    pickaxe.enlarge(20000)  # 20 seconds of giant pickaxe
 
 
         # Delete chunks
@@ -470,12 +573,18 @@ def game():
         # Optionally, remove explosions that have no particles left:
         explosions = [e for e in explosions if e.particles]
 
+        # Draw weather effects
+        weather_system.draw(internal_surface, camera, settings_manager)
+        
         # Draw HUD
-        hud.draw(internal_surface, pickaxe.body.position.y, fast_slow_active, fast_slow)
+        hud.draw(internal_surface, pickaxe.body.position.y, fast_slow_active, fast_slow, settings_manager)
 
         # Scale internal surface to fit the resized window
         scaled_surface = pygame.transform.smoothscale(internal_surface, (window_width, window_height))
         screen.blit(scaled_surface, (0, 0))
+        
+        # Draw settings panel (on top of scaled surface)
+        settings_manager.draw(screen)
 
         # Save progress
         if current_time - last_save_progress >= save_progress_interval:
