@@ -278,6 +278,18 @@ def game():
     sound_manager.load_sound("grass2", assets_dir / "sounds" / "grass2.wav", 0.1)
     sound_manager.load_sound("grass3", assets_dir / "sounds" / "grass3.wav", 0.1)
     sound_manager.load_sound("grass4", assets_dir / "sounds" / "grass4.wav", 0.1)
+    
+    # Try to load achievement sound from attached assets
+    try:
+        achievement_sound_path = Path(__file__).parent.parent / "attached_assets" / "minecraft-achievements-sound-effects-made-with-Voicemod_1756150336259.mp3"
+        if achievement_sound_path.exists():
+            sound_manager.load_sound("achievement", achievement_sound_path, 0.5)
+        else:
+            # Fallback to TNT sound for achievement
+            sound_manager.load_sound("achievement", assets_dir / "sounds" / "tnt.mp3", 0.3)
+    except:
+        # Fallback to TNT sound for achievement
+        sound_manager.load_sound("achievement", assets_dir / "sounds" / "tnt.mp3", 0.3)
 
     # Camera (create before pickaxe to avoid reference error)
     camera = Camera()
@@ -340,6 +352,13 @@ def game():
             if event.type == pygame.QUIT:  # Close window event
                 running = False
                 user_quit = True
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F1:  # Press F1 to test subscriber achievement
+                    notification_manager.add_subscriber_achievement("TestUser123")
+                elif event.key == pygame.K_F2:  # Press F2 to test like achievement  
+                    notification_manager.add_like_achievement("LikeUser456")
+                elif event.key == pygame.K_F3:  # Press F3 to test anonymous subscriber
+                    notification_manager.add_subscriber_achievement()
             elif settings_manager.handle_input(event):
                 continue  # Settings handled the input
             elif event.type == pygame.VIDEORESIZE:  # Window resize event
@@ -669,6 +688,9 @@ def game():
                 f.write(f"lapis: {hud.amounts['lapis_lazuli']} ")
                 f.write(f"diamond: {hud.amounts['diamond']} ")
                 f.write(f"emerald: {hud.amounts['emerald']} \n")
+
+        # Update notifications
+        notification_manager.update()
 
         # Update the display
         pygame.display.flip()

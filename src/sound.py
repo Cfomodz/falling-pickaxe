@@ -12,7 +12,7 @@ class SoundManager:
             print(f"Audio initialization failed: {e}")
             print("Running in silent mode - no audio will be played")
         self.sounds = {}
-        
+
         # Load achievement sound if available
         try:
             from pathlib import Path
