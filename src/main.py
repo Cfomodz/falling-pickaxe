@@ -19,7 +19,7 @@ from hud import Hud
 from settings import SettingsManager
 from weather import WeatherSystem
 import datetime
-from notification_manager import NotificationManager # Assuming NotificationManager exists
+from notifications import NotificationManager
 
 # Track key states
 key_t_pressed = False
@@ -316,8 +316,8 @@ def game():
     settings_manager = SettingsManager()
     weather_system = WeatherSystem()
     
-    # Notifications (assuming this is where it should be initialized)
-    notification_manager = NotificationManager()
+    # Notifications
+    from notifications import notification_manager
 
     # Youtube
     yt_poll_interval = 1000 * config["YT_POLL_INTERVAL_SECONDS"]
