@@ -5,3 +5,9 @@ google-api-python-client>=2.100.0,<2.120.0
 python-dateutil>=2.8.0,<2.9.0
 requests>=2.25.0,<2.32.0
 Pillow>=9.0.0,<11.0.0
+google-api-python-client
+Pillow
+pygame
+pymunk
+python-dateutil
+requests
