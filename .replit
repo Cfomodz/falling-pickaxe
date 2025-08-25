@@ -3,3 +3,15 @@ modules = ["python-3.12", "bash"]
 [nix]
 channel = "stable-25_05"
 packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "fontconfig", "freetype", "libjpeg", "libpng", "pkg-config", "portmidi"]
+
+[workflows]
+runButton = "Run Game"
+
+[[workflows.workflow]]
+name = "Run Game"
+author = 46888018
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python src/main.py"
