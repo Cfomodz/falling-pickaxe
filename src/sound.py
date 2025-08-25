@@ -12,6 +12,15 @@ class SoundManager:
             print(f"Audio initialization failed: {e}")
             print("Running in silent mode - no audio will be played")
         self.sounds = {}
+        
+        # Load achievement sound if available
+        try:
+            from pathlib import Path
+            achievement_sound_path = Path(__file__).parent.parent / "attached_assets" / "minecraft-achievements-sound-effects-made-with-Voicemod_1756150336259.mp3"
+            if achievement_sound_path.exists():
+                self.load_sound("achievement", achievement_sound_path, volume=0.7)
+        except Exception as e:
+            print(f"Could not load achievement sound: {e}")
 
     def load_sound(self, name, path, volume=1.0):
         """Load a sound and set its volume"""

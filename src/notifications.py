@@ -1,7 +1,79 @@
 
 import pygame
 import time
+import random
 from minecraft_font import minecraft_font
+
+class Achievement:
+    def __init__(self, title, description, x=None, y=None):
+        self.title = title
+        self.description = description
+        self.timer = 5000  # 5 seconds display time
+        self.start_time = pygame.time.get_ticks()
+        self.slide_progress = 0.0  # For slide-in animation
+        self.slide_speed = 0.08
+        
+        # Position (will slide in from right)
+        self.target_x = x if x is not None else 50
+        self.target_y = y if y is not None else 50
+        self.current_x = 400  # Start off-screen
+        self.current_y = self.target_y
+        
+        # Play achievement sound
+        try:
+            from sound import SoundManager
+            sound_manager = SoundManager()
+            sound_manager.play_sound("achievement")
+        except:
+            pass
+        
+    def update(self):
+        current_time = pygame.time.get_ticks()
+        self.timer = 5000 - (current_time - self.start_time)
+        
+        # Update slide animation
+        if self.slide_progress < 1.0:
+            self.slide_progress = min(1.0, self.slide_progress + self.slide_speed)
+            # Easing function for smooth slide
+            ease = 1 - (1 - self.slide_progress) ** 3
+            self.current_x = 400 + (self.target_x - 400) * ease
+        
+        return self.timer > 0
+        
+    def draw(self, surface):
+        if self.timer <= 0:
+            return
+            
+        # Create achievement background (Minecraft style)
+        bg_width = 320
+        bg_height = 64
+        
+        # Background with border
+        bg_surface = pygame.Surface((bg_width, bg_height))
+        bg_surface.fill((64, 64, 64))  # Dark gray background
+        pygame.draw.rect(bg_surface, (0, 0, 0), bg_surface.get_rect(), 2)  # Black border
+        
+        # Achievement icon (grass block)
+        icon_size = 32
+        icon_surface = pygame.Surface((icon_size, icon_size))
+        icon_surface.fill((34, 139, 34))  # Green color for grass block
+        pygame.draw.rect(icon_surface, (0, 0, 0), icon_surface.get_rect(), 1)
+        bg_surface.blit(icon_surface, (16, 16))
+        
+        # Title text
+        title_surface = minecraft_font.render_with_shadow(self.title, (255, 255, 0), (0, 0, 0), "normal")
+        bg_surface.blit(title_surface, (60, 8))
+        
+        # Description text
+        desc_surface = minecraft_font.render_with_shadow(self.description, (255, 255, 255), (0, 0, 0), "small")
+        bg_surface.blit(desc_surface, (60, 32))
+        
+        # Apply fade out effect in last second
+        if self.timer < 1000:
+            alpha = int(255 * (self.timer / 1000))
+            bg_surface.set_alpha(alpha)
+        
+        surface.blit(bg_surface, (self.current_x, self.current_y))
 
 class CommandNotification:
     def __init__(self, username, command, x, y):
@@ -93,6 +165,21 @@ class RightPanel:
         
         y_offset = 20
         
+        # Draw Rewards section
+        rewards_title = minecraft_font.render_with_shadow("REWARDS:", (255, 215, 0), (0, 0, 0), "normal")
+        surface.blit(rewards_title, (panel_x + 10, y_offset))
+        y_offset += rewards_title.get_height() + 10
+        
+        # Sub reward
+        sub_reward = minecraft_font.render_with_shadow("Sub = 1 MEGA TNT", (255, 100, 100), (0, 0, 0), "small")
+        surface.blit(sub_reward, (panel_x + 20, y_offset))
+        y_offset += sub_reward.get_height() + 5
+        
+        # Like reward
+        like_reward = minecraft_font.render_with_shadow("Like = 5 TNT", (100, 255, 100), (0, 0, 0), "small")
+        surface.blit(like_reward, (panel_x + 20, y_offset))
+        y_offset += like_reward.get_height() + 15
+        
         # Draw Commands section
         commands_title = minecraft_font.render_with_shadow("Commands:", (255, 255, 255), (0, 0, 0), "normal")
         surface.blit(commands_title, (panel_x + 10, y_offset))
@@ -169,6 +256,7 @@ class RightPanel:
 class NotificationManager:
     def __init__(self):
         self.notifications = []
+        self.achievements = []
         self.right_panel = RightPanel()
         
     def add_command_notification(self, username, command, pickaxe_pos):
@@ -183,9 +271,36 @@ class NotificationManager:
         # Add to leaderboard
         self.right_panel.add_player_activity(username)
         
+    def add_subscriber_achievement(self, username=None):
+        """Add achievement popup for new subscriber"""
+        if username is None:
+            username = f"Player#{random.randint(1000, 9999)}"
+        
+        achievement = Achievement(
+            "Achievement Get!",
+            f"{username} subscribed!",
+            50, 50
+        )
+        self.achievements.append(achievement)
+        
+    def add_like_achievement(self, username=None):
+        """Add achievement popup for new like"""
+        if username is None:
+            username = f"Player#{random.randint(1000, 9999)}"
+        
+        achievement = Achievement(
+            "Achievement Get!",
+            f"{username} liked the stream!",
+            50, 120
+        )
+        self.achievements.append(achievement)
+        
     def update(self):
         # Update notifications
         self.notifications = [n for n in self.notifications if n.update()]
+        
+        # Update achievements
+        self.achievements = [a for a in self.achievements if a.update()]
         
         # Update right panel
         self.right_panel.update()
@@ -201,6 +316,10 @@ class NotificationManager:
                 temp_notification = CommandNotification(notification.username, notification.command, screen_x, screen_y)
                 temp_notification.timer = notification.timer
                 temp_notification.draw(surface)
+        
+        # Draw achievements (fixed position on screen)
+        for achievement in self.achievements:
+            achievement.draw(surface)
                 
         # Draw right panel
         self.right_panel.draw(surface, screen_width, screen_height)
