@@ -8,35 +8,35 @@ class SettingsManager:
     def __init__(self):
         self.settings_file = Path("game_settings.json")
         self.default_settings = {
-            "weather_effects": True,
+            "weather_effects": False,  # Disable for performance
             "particle_effects": True,
-            "screen_shake": True,
+            "screen_shake": False,  # Disable for performance
             "sound_enabled": True,
-            "performance_mode": False,
+            "performance_mode": True,  # Enable by default for streaming
             "auto_performance": True,
             "auto_quality": True,
-            "auto_weather": True,
+            "auto_weather": False,  # Disable auto weather
             "auto_events": True,
             "auto_tnt_spawn": True,
             "auto_pickaxe_change": True,
             "auto_size_change": True,
             "auto_speed_change": True,
-            "max_particles": 100,
+            "max_particles": 50,  # Reduce particles
             "explosion_particles": True,
-            "rainbow_trails": True,
-            "shield_glow": True,
+            "rainbow_trails": False,  # Disable for performance
+            "shield_glow": False,  # Disable for performance
             "combo_display": True,
-            "milestone_celebrations": True,
-            "weather_rain": True,
-            "weather_snow": True,
-            "weather_lightning": True,
-            "low_quality_textures": False,
-            "reduced_effects": False,
-            "target_fps": 60,
-            "show_profile_pictures": True,
+            "milestone_celebrations": False,  # Disable for performance
+            "weather_rain": False,
+            "weather_snow": False,
+            "weather_lightning": False,
+            "low_quality_textures": True,  # Enable for performance
+            "reduced_effects": True,  # Enable for performance
+            "target_fps": 30,  # Lower target FPS for streaming
+            "show_profile_pictures": False,  # Disable for performance
             "show_usernames_on_tnt": True,
             "show_command_notifications": True,
-            "download_profile_pictures": True,
+            "download_profile_pictures": False,  # Disable for performance
             "pixelated_profile_style": True,
             "auto_combo_multiplier": True,
             "auto_difficulty_scaling": True,

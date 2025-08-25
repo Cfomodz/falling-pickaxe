@@ -144,7 +144,7 @@ class TopPlayersTracker:
         return max(0, self.reset_interval - (time.time() - self.last_reset))
 
 class RightPanel:
-    def __init__(self, width=200):
+    def __init__(self, width=120):  # Much smaller width
         self.width = width
         self.top_players = TopPlayersTracker()
         self.commands = [
@@ -157,29 +157,20 @@ class RightPanel:
         self.recent_subscriber = None
         self.subscriber_display_timer = 0
         
+        # Cache textures to reduce lag
+        self.texture_cache = {}
+        self.texture_cache_loaded = False
+        
     def update(self):
         self.top_players.update()
         
     def add_player_activity(self, username):
         self.top_players.add_activity(username)
         
-    def draw(self, surface, screen_width, screen_height):
-        panel_x = screen_width - self.width
-        
-        # Draw panel background
-        panel_surface = pygame.Surface((self.width, screen_height))
-        panel_surface.fill((64, 64, 64))
-        panel_surface.set_alpha(200)
-        surface.blit(panel_surface, (panel_x, 0))
-        
-        y_offset = 15
-        
-        # Draw Rewards section
-        rewards_title = minecraft_font.render_with_shadow("REWARDS:", (255, 215, 0), (0, 0, 0), "small")
-        surface.blit(rewards_title, (panel_x + 5, y_offset))
-        y_offset += rewards_title.get_height() + 8
-        
-        # Get TNT textures
+    def _load_texture_cache(self):
+        """Load textures once to avoid lag"""
+        if self.texture_cache_loaded:
+            return
         try:
             from pathlib import Path
             from atlas import create_texture_atlas
@@ -194,107 +185,98 @@ class RightPanel:
                     x, y, w, h = atlas_items[category][item]
                     atlas_items[category][item] = (x * BLOCK_SCALE_FACTOR, y * BLOCK_SCALE_FACTOR, w * BLOCK_SCALE_FACTOR, h * BLOCK_SCALE_FACTOR)
             
-            # Sub reward with mega TNT icon
+            # Cache the icons we need
             mega_tnt_rect = pygame.Rect(atlas_items["block"]["mega_tnt"])
-            mega_tnt_icon = texture_atlas.subsurface(mega_tnt_rect)
-            mega_tnt_icon = pygame.transform.scale(mega_tnt_icon, (16, 16))
-            surface.blit(mega_tnt_icon, (panel_x + 8, y_offset))
+            self.texture_cache["mega_tnt"] = pygame.transform.scale(
+                texture_atlas.subsurface(mega_tnt_rect), (12, 12))
             
-            sub_reward = minecraft_font.render_with_shadow("Sub = 1 MEGA", (255, 100, 100), (0, 0, 0), "tiny")
-            surface.blit(sub_reward, (panel_x + 28, y_offset))
-            y_offset += max(sub_reward.get_height(), 16) + 3
-            
-            # Show recent subscriber name if available
-            if self.recent_subscriber and pygame.time.get_ticks() < self.subscriber_display_timer:
-                sub_name = minecraft_font.render_with_shadow(f"{self.recent_subscriber}", (255, 255, 100), (0, 0, 0), "tiny")
-                surface.blit(sub_name, (panel_x + 8, y_offset))
-                y_offset += sub_name.get_height() + 3
-            
-            # Like reward with TNT icon
             tnt_rect = pygame.Rect(atlas_items["block"]["tnt"])
-            tnt_icon = texture_atlas.subsurface(tnt_rect)
-            tnt_icon = pygame.transform.scale(tnt_icon, (16, 16))
-            
-            # Draw "Like" text above TNT
-            like_label = minecraft_font.render_with_shadow("Like", (100, 255, 100), (0, 0, 0), "tiny")
-            surface.blit(like_label, (panel_x + 8, y_offset))
-            y_offset += like_label.get_height() + 2
-            
-            # Draw TNT icon and count
-            surface.blit(tnt_icon, (panel_x + 8, y_offset))
-            like_count = minecraft_font.render_with_shadow("= 10", (100, 255, 100), (0, 0, 0), "tiny")
-            surface.blit(like_count, (panel_x + 28, y_offset + 2))
-            y_offset += max(like_count.get_height(), 16) + 10
-            
-        except Exception as e:
-            # Fallback without icons
-            sub_reward = minecraft_font.render_with_shadow("Sub = 1 MEGA", (255, 100, 100), (0, 0, 0), "tiny")
-            surface.blit(sub_reward, (panel_x + 8, y_offset))
-            y_offset += sub_reward.get_height() + 3
-            
-            like_reward = minecraft_font.render_with_shadow("Like = 10 TNT", (100, 255, 100), (0, 0, 0), "tiny")
-            surface.blit(like_reward, (panel_x + 8, y_offset))
-            y_offset += like_reward.get_height() + 10
+            self.texture_cache["tnt"] = pygame.transform.scale(
+                texture_atlas.subsurface(tnt_rect), (12, 12))
+                
+            self.texture_cache_loaded = True
+        except:
+            self.texture_cache_loaded = True  # Don't keep trying
+
+    def draw(self, surface, screen_width, screen_height):
+        panel_x = screen_width - self.width
         
-        # Draw Commands section
-        commands_title = minecraft_font.render_with_shadow("Commands:", (255, 255, 255), (0, 0, 0), "small")
-        surface.blit(commands_title, (panel_x + 5, y_offset))
-        y_offset += commands_title.get_height() + 5
+        # Draw panel background (smaller and more transparent for performance)
+        panel_surface = pygame.Surface((self.width, screen_height))
+        panel_surface.fill((64, 64, 64))
+        panel_surface.set_alpha(180)  # Less opacity for performance
+        surface.blit(panel_surface, (panel_x, 0))
         
-        # Split commands into two columns to save space
-        col1_commands = self.commands[:7]
-        col2_commands = self.commands[7:]
+        y_offset = 8  # Start closer to top
         
-        start_y = y_offset
-        for i, command in enumerate(col1_commands):
-            command_color = self.get_command_color(command)
-            command_text = minecraft_font.render_with_shadow(f"• {command}", command_color, (0, 0, 0), "tiny")
-            surface.blit(command_text, (panel_x + 8, y_offset))
-            y_offset += command_text.get_height() + 2
-        
-        # Second column
-        y_offset = start_y
-        for command in col2_commands:
-            command_color = self.get_command_color(command)
-            command_text = minecraft_font.render_with_shadow(f"• {command}", command_color, (0, 0, 0), "tiny")
-            surface.blit(command_text, (panel_x + self.width // 2 + 5, y_offset))
-            y_offset += command_text.get_height() + 2
-        
-        y_offset = start_y + max(len(col1_commands), len(col2_commands)) * 12 + 10
-            
-        y_offset += 30
-        
-        # Draw Top Players section
+        # TOP PLAYERS FIRST (at the top)
         time_left = int(self.top_players.get_time_until_reset())
         minutes = time_left // 60
         seconds = time_left % 60
         
-        players_title = minecraft_font.render_with_shadow(f"TOP ({minutes:02d}:{seconds:02d})", (255, 255, 0), (0, 0, 0), "small")
-        surface.blit(players_title, (panel_x + 5, y_offset))
-        y_offset += players_title.get_height() + 5
+        players_title = minecraft_font.render_with_shadow(f"TOP ({minutes:02d}:{seconds:02d})", (255, 255, 0), (0, 0, 0), "tiny")
+        surface.blit(players_title, (panel_x + 3, y_offset))
+        y_offset += players_title.get_height() + 3
         
-        from settings import SettingsManager
-        settings = SettingsManager()
-        show_profile_pics = settings.get_setting("show_profile_pictures")
-        
-        top_players = self.top_players.get_top_players()
+        # Show top 5 players (no profile pics for performance)
+        top_players = self.top_players.get_top_players(5)
         for i, (username, activity) in enumerate(top_players):
             rank_color = self.get_rank_color(i)
             
-            # Draw profile picture if enabled
-            if show_profile_pics:
-                from profile_picture_manager import profile_picture_manager
-                profile_pic = profile_picture_manager.load_profile_picture(username, 16)
-                surface.blit(profile_pic, (panel_x + 8, y_offset))
-                text_x = panel_x + 28  # Offset for profile picture
-            else:
-                text_x = panel_x + 8
-                
-            # Truncate username if too long
-            display_name = username[:8] + "..." if len(username) > 8 else username
-            player_text = minecraft_font.render_with_shadow(f"{i+1}. {display_name}: {activity}", rank_color, (0, 0, 0), "tiny")
-            surface.blit(player_text, (text_x, y_offset))
-            y_offset += max(player_text.get_height(), 16) + 3
+            # Truncate username for small panel
+            display_name = username[:6] + "..." if len(username) > 6 else username
+            player_text = minecraft_font.render_with_shadow(f"{i+1}.{display_name}:{activity}", rank_color, (0, 0, 0), "tiny")
+            surface.blit(player_text, (panel_x + 3, y_offset))
+            y_offset += player_text.get_height() + 1
+        
+        y_offset += 10  # Space between sections
+        
+        # REWARDS section (simplified)
+        self._load_texture_cache()
+        
+        if "mega_tnt" in self.texture_cache:
+            surface.blit(self.texture_cache["mega_tnt"], (panel_x + 3, y_offset))
+            sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "tiny")
+            surface.blit(sub_text, (panel_x + 18, y_offset))
+            y_offset += 16
+            
+            # Show recent subscriber name if available
+            if self.recent_subscriber and pygame.time.get_ticks() < self.subscriber_display_timer:
+                sub_name = minecraft_font.render_with_shadow(f"{self.recent_subscriber[:8]}", (255, 255, 100), (0, 0, 0), "tiny")
+                surface.blit(sub_name, (panel_x + 3, y_offset))
+                y_offset += sub_name.get_height() + 2
+        else:
+            sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "tiny")
+            surface.blit(sub_text, (panel_x + 3, y_offset))
+            y_offset += sub_text.get_height() + 3
+            
+        # Like reward
+        like_text = minecraft_font.render_with_shadow("Like", (100, 255, 100), (0, 0, 0), "tiny")
+        surface.blit(like_text, (panel_x + 3, y_offset))
+        y_offset += like_text.get_height() + 1
+        
+        if "tnt" in self.texture_cache:
+            surface.blit(self.texture_cache["tnt"], (panel_x + 3, y_offset))
+            like_count = minecraft_font.render_with_shadow("=10", (100, 255, 100), (0, 0, 0), "tiny")
+            surface.blit(like_count, (panel_x + 18, y_offset))
+            y_offset += 16
+        else:
+            like_count = minecraft_font.render_with_shadow("=10 TNT", (100, 255, 100), (0, 0, 0), "tiny")
+            surface.blit(like_count, (panel_x + 3, y_offset))
+            y_offset += like_count.get_height() + 6
+        
+        # COMMANDS section (simplified, single column)
+        commands_title = minecraft_font.render_with_shadow("Commands:", (255, 255, 255), (0, 0, 0), "tiny")
+        surface.blit(commands_title, (panel_x + 3, y_offset))
+        y_offset += commands_title.get_height() + 3
+        
+        # Show only most important commands in single column
+        important_commands = ["tnt", "fast", "slow", "big", "wood", "iron", "gold", "diamond"]
+        for command in important_commands:
+            command_color = self.get_command_color(command)
+            command_text = minecraft_font.render_with_shadow(f"•{command}", command_color, (0, 0, 0), "tiny")
+            surface.blit(command_text, (panel_x + 3, y_offset))
+            y_offset += command_text.get_height() + 1
             
     def get_command_color(self, command):
         """Get color for different commands"""
@@ -331,6 +313,8 @@ class NotificationManager:
         self.notifications = []
         self.achievements = []
         self.right_panel = RightPanel()
+        self.last_update = 0
+        self.update_interval = 100  # Update every 100ms instead of every frame
         
     def add_command_notification(self, username, command, pickaxe_pos):
         """Add a notification near the pickaxe"""
@@ -375,10 +359,18 @@ class NotificationManager:
         self.achievements.append(achievement)
         
     def update(self):
+        current_time = pygame.time.get_ticks()
+        
+        # Only update every 100ms to reduce lag
+        if current_time - self.last_update < self.update_interval:
+            return
+            
+        self.last_update = current_time
+        
         # Update notifications
         self.notifications = [n for n in self.notifications if n.update()]
         
-        # Update achievements
+        # Update achievements  
         self.achievements = [a for a in self.achievements if a.update()]
         
         # Update right panel
