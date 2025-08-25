@@ -64,6 +64,9 @@ fast_slow_queue = []
 big_queue = []
 pickaxe_queue = []
 mega_tnt_queue = []
+rainbow_queue = []
+shield_queue = []
+freeze_queue = []
 
 async def handle_youtube_poll():
     global subscribers # Use global to modify the variable
@@ -132,6 +135,21 @@ async def handle_youtube_poll():
              if author not in [entry[0] for entry in pickaxe_queue]:
                  pickaxe_queue.append((author, "netherite_pickaxe"))
                  print(f"Added {author} to Pickaxe queue (netherite_pickaxe)")
+                 
+        # Check for rainbow command
+        if "rainbow" in text_lower and author not in rainbow_queue:
+            rainbow_queue.append(author)
+            print(f"Added {author} to Rainbow queue")
+            
+        # Check for shield command  
+        if "shield" in text_lower and author not in shield_queue:
+            shield_queue.append(author)
+            print(f"Added {author} to Shield queue")
+            
+        # Check for freeze command
+        if "freeze" in text_lower and author not in freeze_queue:
+            freeze_queue.append(author)
+            print(f"Added {author} to Freeze queue")
 
     # print the queue counts (optional, for debugging)
     # print(f"Queues: TNT={len(tnt_queue)}, Superchat TNT={len(tnt_superchat_queue)}, Fast/Slow={len(fast_slow_queue)}, Big={len(big_queue)}, Pickaxe={len(pickaxe_queue)}, MegaTNT={len(mega_tnt_queue)}")
@@ -204,6 +222,7 @@ def game():
 
     # Pickaxe
     pickaxe = Pickaxe(space, INTERNAL_WIDTH // 2, INTERNAL_HEIGHT // 2, texture_atlas.subsurface(atlas_items["pickaxe"]["wooden_pickaxe"]), sound_manager)
+    pickaxe.camera_ref = camera  # Connect camera for screen shake effects
 
     # TNT
     last_tnt_spawn = pygame.time.get_ticks()
@@ -398,6 +417,26 @@ def game():
                 pickaxe.pickaxe(pickaxe_type, texture_atlas, atlas_items)
                 last_random_pickaxe = current_time
                 random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
+                
+            # Handle Rainbow command
+            if rainbow_queue:
+                author = rainbow_queue.pop(0)
+                print(f"Activating rainbow mode for {author}")
+                pickaxe.activate_rainbow_mode(15000)  # 15 seconds
+                
+            # Handle Shield command
+            if shield_queue:
+                author = shield_queue.pop(0)
+                print(f"Activating shield for {author}")
+                pickaxe.activate_shield(10000)  # 10 seconds
+                
+            # Handle Freeze command
+            if freeze_queue:
+                author = freeze_queue.pop(0)
+                print(f"Freezing pickaxe for {author}")
+                # Temporarily reduce gravity and add upward force
+                old_velocity = pickaxe.body.velocity
+                pickaxe.body.velocity = (old_velocity.x * 0.1, -200)  # Slow and slight upward force
 
 
         # Delete chunks

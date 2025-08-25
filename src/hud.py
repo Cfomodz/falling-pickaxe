@@ -41,6 +41,11 @@ class Hud:
             "diamond": 0,
             "emerald": 0,
         }
+        
+        # Combo system
+        self.combo_count = 0
+        self.combo_timer = 0
+        self.combo_multiplier = 1.0
 
         self.position = position
         self.icon_size = (64, 64)  # Size to draw each icon
@@ -55,6 +60,18 @@ class Hud:
         :param new_amounts: Dict with ore names as keys and integer amounts as values.
         """
         self.amounts.update(new_amounts)
+        
+    def add_combo(self):
+        """Add to combo counter and reset timer."""
+        self.combo_count += 1
+        self.combo_timer = pygame.time.get_ticks() + 3000  # 3 second combo window
+        self.combo_multiplier = min(5.0, 1.0 + (self.combo_count * 0.1))  # Cap at 5x
+        
+    def update_combo(self):
+        """Update combo system - reset if timer expires."""
+        if pygame.time.get_ticks() > self.combo_timer and self.combo_count > 0:
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
 
     def draw(self, screen, pickaxe_y, fast_slow_active, fast_slow):
         """
@@ -104,6 +121,16 @@ class Hud:
         fast_slow_x = x + self.spacing
         fast_slow_y = y + 2 * self.spacing + fast_slow_surface.get_height()
         screen.blit(fast_slow_surface, (fast_slow_x, fast_slow_y))
+        
+        # Update and draw combo counter
+        self.update_combo()
+        if self.combo_count > 0:
+            combo_text = f"COMBO: {self.combo_count}x ({self.combo_multiplier:.1f}x)"
+            combo_color = (255, 255, 0) if self.combo_count >= 10 else (255, 255, 255)
+            combo_surface = render_text_with_outline(combo_text, self.font, combo_color, (0, 0, 0), outline_width=2)
+            combo_x = x + self.spacing
+            combo_y = fast_slow_y + 2 * self.spacing + combo_surface.get_height()
+            screen.blit(combo_surface, (combo_x, combo_y))
 
             
 
