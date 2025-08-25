@@ -1,9 +1,6 @@
 import pygame
 import random
 
-import pygame
-import random
-
 class ExplosionParticle:
     def __init__(self, pos, texture_atlas, atlas_items, frame_count=16, frame_duration=1):
         """
