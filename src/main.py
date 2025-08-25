@@ -2,7 +2,7 @@ import time
 import pygame
 import pymunk
 import pymunk.pygame_util
-from youtube import get_live_stream, get_new_live_chat_messages, get_live_chat_id, get_subscriber_count, validate_live_stream_id
+from youtube import get_live_stream, get_new_live_chat_messages, get_live_chat_id, get_subscriber_count, validate_live_stream_id, get_live_streams
 from config import config
 from atlas import create_texture_atlas
 from pathlib import Path
@@ -33,15 +33,36 @@ last_follower_milestone = 0
 last_hour_checked = datetime.datetime.now().hour
 
 if config["CHAT_CONTROL"] == True:
-    print("Checking for specific live stream")
+    print("Checking for live stream...")
+    
+    # First try specific live stream ID if provided
     if config["LIVESTREAM_ID"] is not None and config["LIVESTREAM_ID"] != "":
         stream_id = validate_live_stream_id(config["LIVESTREAM_ID"])
         live_stream = get_live_stream(stream_id)
+        if live_stream:
+            print("Using specific live stream:", live_stream["snippet"]["title"])
+    
+    # If no specific stream found, try to auto-detect live streams from channel
+    if live_stream is None and config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != "":
+        print("No specific live stream found. Attempting auto-detection...")
+        from youtube import get_live_streams
+        try:
+            live_streams = get_live_streams(config["CHANNEL_ID"])
+            if live_streams:
+                # Use the first live stream found
+                auto_stream_id = live_streams[0]["video_id"]
+                live_stream = get_live_stream(auto_stream_id)
+                if live_stream:
+                    print(f"Auto-detected live stream: {live_streams[0]['title']}")
+            else:
+                print("No live streams found for this channel.")
+        except Exception as e:
+            print(f"Error during auto-detection: {e}")
 
     if live_stream is None:
-        print("No specific live stream found. App will run without it.")
+        print("No live stream found. App will run without chat integration.")
     else:
-        print("Live stream found:", live_stream["snippet"]["title"])
+        print("Live stream ready:", live_stream["snippet"]["title"])
 
     # get chat id from live stream
     if live_stream is not None:
@@ -257,6 +278,9 @@ def game():
     sound_manager.load_sound("grass3", assets_dir / "sounds" / "grass3.wav", 0.1)
     sound_manager.load_sound("grass4", assets_dir / "sounds" / "grass4.wav", 0.1)
 
+    # Camera (create before pickaxe to avoid reference error)
+    camera = Camera()
+
     # Pickaxe
     pickaxe = Pickaxe(space, INTERNAL_WIDTH // 2, INTERNAL_HEIGHT // 2, texture_atlas.subsurface(atlas_items["pickaxe"]["wooden_pickaxe"]), sound_manager)
     pickaxe.camera_ref = camera  # Connect camera for screen shake effects
@@ -280,9 +304,6 @@ def game():
     fast_slow = random.choice(["Fast", "Slow"])
     fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
     last_fast_slow = pygame.time.get_ticks()
-
-    # Camera
-    camera = Camera()
 
     # HUD
     hud = Hud(texture_atlas, atlas_items)
