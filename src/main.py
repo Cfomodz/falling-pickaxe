@@ -444,10 +444,30 @@ def game():
             if tnt_queue:
                 author = tnt_queue.pop(0)
                 print(f"Spawning regular TNT for {author} (from chat command)")
+                
+                # Download profile picture if enabled
+                settings = SettingsManager()
+                if settings.get_setting("download_profile_pictures"):
+                    from youtube import get_user_profile_picture
+                    from profile_picture_manager import profile_picture_manager
+                    import threading
+                    
+                    def download_pic():
+                        pic_url = get_user_profile_picture(author)
+                        if pic_url:
+                            profile_picture_manager.download_profile_picture(author, pic_url)
+                    
+                    # Download in background to avoid blocking
+                    threading.Thread(target=download_pic, daemon=True).start()
+                
                 new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
                              texture_atlas, atlas_items, sound_manager, owner_name=author)
                 tnt_list.append(new_tnt)
                 last_tnt_spawn = current_time
+                
+                # Add command notification if enabled
+                if settings.get_setting("show_command_notifications"):
+                    notification_manager.add_command_notification(author, "tnt", pickaxe.body.position)
 
             # Handle MegaTNT (New Subscriber)
             if mega_tnt_queue:
@@ -475,6 +495,11 @@ def game():
                 last_fast_slow = current_time
                 fast_slow = q_fast_slow
                 fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
+                
+                # Add command notification if enabled
+                settings = SettingsManager()
+                if settings.get_setting("show_command_notifications"):
+                    notification_manager.add_command_notification(author, q_fast_slow.lower(), pickaxe.body.position)
 
             # Handle Big pickaxe command
             if big_queue:
@@ -483,6 +508,11 @@ def game():
                 pickaxe.enlarge(enlarge_duration)
                 last_enlarge = current_time + enlarge_duration
                 enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
+                
+                # Add command notification if enabled
+                settings = SettingsManager()
+                if settings.get_setting("show_command_notifications"):
+                    notification_manager.add_command_notification(author, "big", pickaxe.body.position)
 
             # Handle Pickaxe type command
             if pickaxe_queue:
@@ -491,6 +521,12 @@ def game():
                 pickaxe.pickaxe(pickaxe_type, texture_atlas, atlas_items)
                 last_random_pickaxe = current_time
                 random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
+                
+                # Add command notification if enabled
+                settings = SettingsManager()
+                if settings.get_setting("show_command_notifications"):
+                    command_name = pickaxe_type.replace("_pickaxe", "")
+                    notification_manager.add_command_notification(author, command_name, pickaxe.body.position)
 
             # Handle Rainbow command
             if rainbow_queue:

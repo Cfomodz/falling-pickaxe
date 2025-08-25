@@ -191,3 +191,25 @@ def get_channel_stats(channel_id):
     except Exception as e:
         print(f"Error fetching channel stats: {e}")
         return None
+
+def get_user_profile_picture(username):
+    """Get profile picture URL for a username (if available through channel search)"""
+    if config["API_KEY"] == "YOUR_API_KEY_HERE" or config["API_KEY"] == "":
+        return None
+    
+    try:
+        # Search for channels by username
+        request = youtube.search().list(
+            part="snippet",
+            q=username,
+            type="channel",
+            maxResults=1
+        )
+        response = request.execute()
+        
+        if response.get("items"):
+            return response["items"][0]["snippet"]["thumbnails"]["default"]["url"]
+        return None
+    except Exception as e:
+        print(f"Error fetching profile picture for {username}: {e}")
+        return None

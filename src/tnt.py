@@ -49,6 +49,12 @@ class Tnt:
         # Owner name (nick from chat)
         self.owner_name = owner_name
         self.font = pygame.font.Font(None, 70)
+        self.profile_picture = None
+        
+        # Load profile picture if owner name exists
+        if self.owner_name:
+            from profile_picture_manager import profile_picture_manager
+            self.profile_picture = profile_picture_manager.load_profile_picture(self.owner_name, 32)
 
     def on_collision(self, arbiter, space, data):
         # Small random rotation on collision
@@ -117,14 +123,30 @@ class Tnt:
         overlay_rect.x -= camera.offset_x
         screen.blit(rotated_overlay, overlay_rect)
 
-        # Draw owner name above TNT
+        # Draw owner name and profile picture above TNT
         if self.owner_name:
-            text_surface = self.font.render(self.owner_name, True, (255, 255, 255))
-            text_rect = text_surface.get_rect(center=(self.body.position.x - camera.offset_x, self.body.position.y - 55 - camera.offset_y))
-            shadow = self.font.render(self.owner_name, True, (0, 0, 0))
-            shadow_rect = shadow.get_rect(center=(self.body.position.x + 1 - camera.offset_x, self.body.position.y - 54 - camera.offset_y))
-            screen.blit(shadow, shadow_rect)
-            screen.blit(text_surface, text_rect)
+            from minecraft_font import minecraft_font
+            from settings import SettingsManager
+            
+            # Check settings to see if we should show profile info
+            settings = SettingsManager()
+            show_profile_pics = settings.get_setting("show_profile_pictures")
+            show_usernames = settings.get_setting("show_usernames_on_tnt")
+            
+            y_offset = -55
+            
+            # Draw profile picture
+            if show_profile_pics and self.profile_picture:
+                pic_x = self.body.position.x - camera.offset_x - 16
+                pic_y = self.body.position.y + y_offset - camera.offset_y - 16
+                screen.blit(self.profile_picture, (pic_x, pic_y))
+                y_offset -= 40
+            
+            # Draw username with Minecraft font
+            if show_usernames:
+                text_surface = minecraft_font.render_with_shadow(self.owner_name, (255, 255, 0), (0, 0, 0), "small")
+                text_rect = text_surface.get_rect(center=(self.body.position.x - camera.offset_x, self.body.position.y + y_offset - camera.offset_y))
+                screen.blit(text_surface, text_rect)
 
 class MegaTnt(Tnt):
     def __init__(self, space, x, y, texture_atlas, atlas_items, sound_manager, owner_name=None, velocity=0, rotation=0, mass=100):

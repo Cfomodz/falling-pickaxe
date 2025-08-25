@@ -115,12 +115,26 @@ class RightPanel:
         surface.blit(players_title, (panel_x + 10, y_offset))
         y_offset += players_title.get_height() + 10
         
+        from settings import SettingsManager
+        settings = SettingsManager()
+        show_profile_pics = settings.get_setting("show_profile_pictures")
+        
         top_players = self.top_players.get_top_players()
         for i, (username, activity) in enumerate(top_players):
             rank_color = self.get_rank_color(i)
+            
+            # Draw profile picture if enabled
+            if show_profile_pics:
+                from profile_picture_manager import profile_picture_manager
+                profile_pic = profile_picture_manager.load_profile_picture(username, 24)
+                surface.blit(profile_pic, (panel_x + 20, y_offset))
+                text_x = panel_x + 50  # Offset for profile picture
+            else:
+                text_x = panel_x + 20
+                
             player_text = minecraft_font.render_with_shadow(f"{i+1}. {username}: {activity}", rank_color, (0, 0, 0), "small")
-            surface.blit(player_text, (panel_x + 20, y_offset))
-            y_offset += player_text.get_height() + 5
+            surface.blit(player_text, (text_x, y_offset))
+            y_offset += max(player_text.get_height(), 24) + 5
             
     def get_command_color(self, command):
         """Get color for different commands"""

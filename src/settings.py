@@ -25,7 +25,12 @@ class SettingsManager:
             "weather_lightning": True,
             "low_quality_textures": False,
             "reduced_effects": False,
-            "target_fps": 60
+            "target_fps": 60,
+            "show_profile_pictures": True,
+            "show_usernames_on_tnt": True,
+            "show_command_notifications": True,
+            "download_profile_pictures": True,
+            "pixelated_profile_style": True
         }
         self.settings = self.load_settings()
         self.show_settings = False
