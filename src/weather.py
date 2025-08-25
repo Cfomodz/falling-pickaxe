@@ -30,8 +30,8 @@ class WeatherSystem:
             
         self.weather_timer += 16  # Assuming 60 FPS
         
-        # Random weather changes
-        if self.weather_timer > self.next_weather_change:
+        # Random weather changes (only if auto weather is enabled)
+        if settings_manager.get_setting("auto_weather") and self.weather_timer > self.next_weather_change:
             if self.active_weather is None:
                 # Start random weather
                 weather_options = []

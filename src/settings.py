@@ -14,6 +14,13 @@ class SettingsManager:
             "sound_enabled": True,
             "performance_mode": False,
             "auto_performance": True,
+            "auto_quality": True,
+            "auto_weather": True,
+            "auto_events": True,
+            "auto_tnt_spawn": True,
+            "auto_pickaxe_change": True,
+            "auto_size_change": True,
+            "auto_speed_change": True,
             "max_particles": 100,
             "explosion_particles": True,
             "rainbow_trails": True,
@@ -30,7 +37,11 @@ class SettingsManager:
             "show_usernames_on_tnt": True,
             "show_command_notifications": True,
             "download_profile_pictures": True,
-            "pixelated_profile_style": True
+            "pixelated_profile_style": True,
+            "auto_combo_multiplier": True,
+            "auto_difficulty_scaling": True,
+            "dynamic_music": False,
+            "adaptive_ui_scale": True
         }
         self.settings = self.load_settings()
         self.show_settings = False
@@ -96,9 +107,9 @@ class SettingsManager:
         overlay.fill((0, 0, 0))
         screen.blit(overlay, (0, 0))
         
-        # Settings panel
-        panel_width = 800
-        panel_height = 600
+        # Settings panel - scale to screen size
+        panel_width = min(800, int(screen.get_width() * 0.9))
+        panel_height = min(600, int(screen.get_height() * 0.8))
         panel_x = (screen.get_width() - panel_width) // 2
         panel_y = (screen.get_height() - panel_height) // 2
         
@@ -116,16 +127,41 @@ class SettingsManager:
         instruction_x = panel_x + (panel_width - instruction_text.get_width()) // 2
         screen.blit(instruction_text, (instruction_x, panel_y + 70))
         
-        # Settings list
+        # Settings list with scrolling
         y_offset = panel_y + 120
         settings_keys = list(self.settings.keys())
         
-        for i, key in enumerate(settings_keys):
+        # Calculate visible area
+        visible_height = panel_height - 170  # Leave room for title and instructions
+        line_height = 30
+        max_visible_items = visible_height // line_height
+        
+        # Handle scrolling
+        if self.selected_option >= max_visible_items:
+            self.scroll_offset = self.selected_option - max_visible_items + 1
+        elif self.selected_option < self.scroll_offset:
+            self.scroll_offset = self.selected_option
+            
+        # Adjust scroll offset to prevent over-scrolling
+        max_scroll = max(0, len(settings_keys) - max_visible_items)
+        self.scroll_offset = max(0, min(self.scroll_offset, max_scroll))
+        
+        # Draw visible settings
+        for i in range(len(settings_keys)):
+            if i < self.scroll_offset or i >= self.scroll_offset + max_visible_items:
+                continue
+                
+            key = settings_keys[i]
+            draw_y = y_offset + (i - self.scroll_offset) * line_height
+            
             color = (255, 255, 0) if i == self.selected_option else (255, 255, 255)
             
             # Format setting name
             display_name = key.replace('_', ' ').title()
-            setting_text = self.font.render(display_name, True, color)
+            # Scale font size based on panel width
+            font_size = max(16, min(24, panel_width // 35))
+            scaled_font = pygame.font.Font(None, font_size)
+            setting_text = scaled_font.render(display_name, True, color)
             
             # Setting value
             value = "ON" if self.settings[key] else "OFF"
@@ -134,14 +170,26 @@ class SettingsManager:
             value_color = (0, 255, 0) if self.settings[key] else (255, 0, 0)
             if isinstance(self.settings[key], (int, float)):
                 value_color = (255, 255, 255)
-            value_text = self.font.render(value, True, value_color)
+            value_text = scaled_font.render(value, True, value_color)
             
-            # Draw setting
-            if y_offset < panel_y + panel_height - 50:  # Only draw if within panel
-                screen.blit(setting_text, (panel_x + 30, y_offset))
-                screen.blit(value_text, (panel_x + panel_width - 150, y_offset))
-            
-            y_offset += 35
+            # Draw setting if within panel
+            if draw_y < panel_y + panel_height - 50:
+                screen.blit(setting_text, (panel_x + 20, draw_y))
+                screen.blit(value_text, (panel_x + panel_width - 100, draw_y))
+        
+        # Draw scroll indicators
+        if self.scroll_offset > 0:
+            pygame.draw.polygon(screen, (255, 255, 255), [
+                (panel_x + panel_width - 30, panel_y + 130),
+                (panel_x + panel_width - 20, panel_y + 120),
+                (panel_x + panel_width - 10, panel_y + 130)
+            ])
+        if self.scroll_offset < max_scroll:
+            pygame.draw.polygon(screen, (255, 255, 255), [
+                (panel_x + panel_width - 30, panel_y + panel_height - 70),
+                (panel_x + panel_width - 20, panel_y + panel_height - 60),
+                (panel_x + panel_width - 10, panel_y + panel_height - 70)
+            ])
     
     def update(self, fps):
         self.performance_monitor.update(fps)
@@ -150,6 +198,18 @@ class SettingsManager:
             if should_enable != self.get_setting("performance_mode"):
                 self.settings["performance_mode"] = should_enable
                 print(f"Auto performance mode: {'ENABLED' if should_enable else 'DISABLED'}")
+        
+        # Auto quality adjustment
+        if self.get_setting("auto_quality"):
+            avg_fps = self.performance_monitor.get_average_fps()
+            if avg_fps < 30 and not self.get_setting("reduced_effects"):
+                self.settings["reduced_effects"] = True
+                self.settings["max_particles"] = 50
+                print("Auto quality: Reduced effects enabled due to low FPS")
+            elif avg_fps > 50 and self.get_setting("reduced_effects"):
+                self.settings["reduced_effects"] = False
+                self.settings["max_particles"] = 100
+                print("Auto quality: Full effects restored")
 
 class PerformanceMonitor:
     def __init__(self):

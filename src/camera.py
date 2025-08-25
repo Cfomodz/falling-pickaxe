@@ -8,6 +8,16 @@ class Camera:
         self.offset_x = 0  # Horizontal offset
         self.shake_timer = 0
         self.shake_intensity = 0
+        
+    @property
+    def y(self):
+        """Alias for offset_y to maintain compatibility"""
+        return self.offset_y
+    
+    @property
+    def x(self):
+        """Alias for offset_x to maintain compatibility"""
+        return self.offset_x
 
     def shake(self, duration, intensity, bias_x=0, bias_y=0):
         """Start a camera shake effect with optional directional bias."""

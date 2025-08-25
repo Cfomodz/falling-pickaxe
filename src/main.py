@@ -384,7 +384,7 @@ def game():
 
         # Check if it's time to spawn a new TNT (regular random spawn)
         current_time = pygame.time.get_ticks()
-        if (not config["CHAT_CONTROL"] or (not tnt_queue and not tnt_superchat_queue and not mega_tnt_queue)) and current_time - last_tnt_spawn >= tnt_spawn_interval:
+        if settings_manager.get_setting("auto_tnt_spawn") and (not config["CHAT_CONTROL"] or (not tnt_queue and not tnt_superchat_queue and not mega_tnt_queue)) and current_time - last_tnt_spawn >= tnt_spawn_interval:
              # Example: spawn TNT at position (400, 300) with a given texture
              new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
                texture_atlas, atlas_items, sound_manager)
@@ -394,21 +394,21 @@ def game():
              tnt_spawn_interval = 1000 * random.uniform(config["TNT_SPAWN_INTERVAL_SECONDS_MIN"], config["TNT_SPAWN_INTERVAL_SECONDS_MAX"])
 
         # Check if it's time to change the pickaxe (random)
-        if (not config["CHAT_CONTROL"] or not pickaxe_queue) and current_time - last_random_pickaxe >= random_pickaxe_interval:
+        if settings_manager.get_setting("auto_pickaxe_change") and (not config["CHAT_CONTROL"] or not pickaxe_queue) and current_time - last_random_pickaxe >= random_pickaxe_interval:
             pickaxe.random_pickaxe(texture_atlas, atlas_items)
             last_random_pickaxe = current_time
             # New random interval for the next pickaxe change
             random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
 
         # Check if it's time for pickaxe enlargement (random)
-        if (not config["CHAT_CONTROL"] or not big_queue) and current_time - last_enlarge >= enlarge_interval:
+        if settings_manager.get_setting("auto_size_change") and (not config["CHAT_CONTROL"] or not big_queue) and current_time - last_enlarge >= enlarge_interval:
             pickaxe.enlarge(enlarge_duration)
             last_enlarge = current_time + enlarge_duration
             # New random interval for the next enlargement
             enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
 
         # Check if it's time to change speed (random)
-        if (not config["CHAT_CONTROL"] or not fast_slow_queue) and current_time - last_fast_slow >= fast_slow_interval and not fast_slow_active:
+        if settings_manager.get_setting("auto_speed_change") and (not config["CHAT_CONTROL"] or not fast_slow_queue) and current_time - last_fast_slow >= fast_slow_interval and not fast_slow_active:
             # Randomly choose between "fast" and "slow"
             fast_slow = random.choice(["Fast", "Slow"])
             print("Changing speed to:", fast_slow)
