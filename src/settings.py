@@ -41,7 +41,11 @@ class SettingsManager:
             "auto_combo_multiplier": True,
             "auto_difficulty_scaling": True,
             "dynamic_music": False,
-            "adaptive_ui_scale": True
+            "adaptive_ui_scale": True,
+            "streaming_enabled": False,
+            "stream_quality": "720p",
+            "stream_fps": 30,
+            "auto_start_stream": False
         }
         self.settings = self.load_settings()
         self.show_settings = False
@@ -79,6 +83,27 @@ class SettingsManager:
     def get_setting(self, key):
         return self.settings.get(key, self.default_settings.get(key, False))
     
+    def set_stream_manager(self, stream_manager):
+        """Set the stream manager reference for controlling streaming"""
+        self.stream_manager = stream_manager
+    
+    def handle_streaming_toggle(self, key):
+        """Handle special streaming controls"""
+        if key == "streaming_enabled" and hasattr(self, 'stream_manager') and self.stream_manager:
+            if self.settings[key]:
+                # Start streaming
+                success = self.stream_manager.start_streaming()
+                if not success:
+                    self.settings[key] = False  # Revert if failed
+                    print("❌ Failed to start streaming")
+                else:
+                    print("🎥 Stream started!")
+            else:
+                # Stop streaming
+                self.stream_manager.stop_streaming()
+                print("📴 Stream stopped!")
+            self.save_settings()
+    
     def handle_input(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -93,7 +118,11 @@ class SettingsManager:
                     self.selected_option = (self.selected_option + 1) % len(settings_keys)
                 elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                     selected_key = settings_keys[self.selected_option]
-                    self.toggle_setting(selected_key)
+                    if selected_key == "streaming_enabled":
+                        self.toggle_setting(selected_key)
+                        self.handle_streaming_toggle(selected_key)
+                    else:
+                        self.toggle_setting(selected_key)
                 return True
         return False
     

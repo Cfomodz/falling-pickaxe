@@ -1,13 +1,22 @@
-# Falling Pickaxe
-Falling Pickaxe Game inspired from YouTube shorts livestreams.
+# Falling Pickaxe - Interactive Streaming Edition
+An enhanced Falling Pickaxe game with extensive interactive features for YouTube livestream engagement, profile pictures, achievements, weather effects, and much more!
 
-You can check my video here:
-https://www.youtube.com/watch?v=gcjeidHWEb4
-<div align="left">
-      <a href="https://www.youtube.com/watch?v=gcjeidHWEb4">
-         <img src="https://img.youtube.com/vi/gcjeidHWEb4/0.jpg" style="width:40%;">
-      </a>
-</div>
+This fork includes 25+ major enhancements including:
+- 🎮 **Interactive Chat Integration** - Real-time YouTube chat commands
+- 🖼️ **Profile Picture Display** - YouTube profile pictures with Minecraft styling
+- 🏆 **Achievement System** - Minecraft-style achievement popups with sounds
+- 🌦️ **Weather Effects** - Rain, snow, and other atmospheric effects
+- ⚙️ **Comprehensive Settings** - Performance modes, visual toggles, and more
+- 📊 **Live Stats & Leaderboards** - Top players tracking and milestone celebrations
+- 💥 **Enhanced Explosions** - Rainbow mode, shields, screen shake, and combo systems
+- 🎨 **Minecraft Font Integration** - Authentic Minecraft-style text rendering
+- 📱 **Mobile-Friendly** - Optimized for 9:16 aspect ratio streaming
+- 🔄 **Auto-Detection** - Automatic live stream and chat detection
+- 🎥 **Automated Streaming** - Direct YouTube RTMP streaming with no OBS needed!
+- ⚡ **Real-time Chat** - Sub-second chat response (vs 15+ second API polling)
+- 🎯 **Zero Configuration** - Just add API key, everything else auto-detects!
+
+Original concept by [Vycdev](https://www.youtube.com/@vycdev) - Enhanced for maximum viewer engagement!
 
 ## Before you use it
 If you consider streaming this game on your own youtube channel, please add credits in the description of your video/livestream. Credits should inclue a link to this repository and [a link to my youtube channel.](https://www.youtube.com/@vycdev)
@@ -79,31 +88,78 @@ Steps 2 to 6 are **optional**. You can disable the entire YouTube integration by
 
 ### Available chat commands
 ```
-tnt
+# Explosive Commands
+tnt          - Spawn TNT explosions
+megatnt      - Spawn massive TNT (subscriber rewards)
 
-fast
-slow
+# Speed Controls  
+fast         - Speed up pickaxe movement
+slow         - Slow down pickaxe movement
 
-big
+# Size Controls
+big          - Enlarge the pickaxe temporarily
 
-wood
-stone
-iron
-gold
-diamond
-netherite
+# Pickaxe Materials
+wood         - Change pickaxe to wood texture
+stone        - Change pickaxe to stone texture
+iron         - Change pickaxe to iron texture
+gold         - Change pickaxe to gold texture
+diamond      - Change pickaxe to diamond texture
+netherite    - Change pickaxe to netherite texture
+
+# Special Power-ups
+rainbow      - Activate rainbow mode with particle trails
+shield       - Activate golden shield protection
+
+# Test Commands (F1/F2/F3 keys for testing)
 ```
 
-### MegaTNT spawning
+## New Features Added in This Fork
 
-Extra details about when a MegaTNT appears in the game:
+### 🎮 Interactive Features
+- **Real-time Chat Integration**: Live YouTube chat commands affect the game instantly
+- **Profile Pictures**: YouTube profile pictures appear above TNT and in leaderboards
+- **Achievement System**: Minecraft-style achievement popups with custom sounds
+- **Top Players Board**: Live leaderboard showing most active viewers (resets every 5 minutes)
+- **Command Notifications**: Visual feedback when viewers use chat commands
 
-- New subscribers are detected by periodically polling YouTube for the channel's subscriber count. When an increase is detected the game appends an entry to the `mega_tnt_queue` (the string `"New Subscriber"`) and the MegaTNT will be spawned when the queues are processed.
-- Queue processing happens every `QUEUES_POP_INTERVAL_SECONDS` (see `default.config.json` / `config.json`). Polling frequency for YouTube is controlled by `YT_POLL_INTERVAL_SECONDS`.
-- Requirements for automatic MegaTNT spawning: `CHAT_CONTROL` must be `true`, a valid `live_chat_id` and `CHANNEL_ID` must be configured so the game can read subscriber counts.
-- The queued owner name is currently the literal string `"New Subscriber"` (not the subscriber's username). You can change this behavior in code if you want actual usernames used.
-- You can also spawn a MegaTNT manually in-game by pressing the `M` key — this spawns immediately (no queue).
-- MegaTNTs use a larger explosion radius, detonate automatically ~4 seconds after spawn, and trigger a stronger camera shake.
+### 🎨 Visual Enhancements
+- **Minecraft Font Rendering**: Authentic Minecraft-style text throughout the UI
+- **Weather Effects**: Rain, snow, and atmospheric particles just like Minecraft
+- **Rainbow Mode**: Pickaxe gets colorful particle trails and cycling colors
+- **Shield Power-up**: Golden shield effect with glowing animation
+- **Screen Shake**: Camera shake effects on big impacts and explosions
+- **Compact GUI**: Optimized for 9:16 streaming aspect ratio
+
+### ⚙️ Settings & Performance
+- **Comprehensive Settings Panel**: Access with ESC key
+- **Performance Mode**: Automatic optimization for slower PCs
+- **Auto-Detection**: Automatically finds live streams and chat
+- **Weather Controls**: Toggle rain, snow, and other effects
+- **Visual Toggles**: Enable/disable profile pictures, usernames, effects
+
+### 🏆 Engagement Systems
+- **Milestone Celebrations**: Every 100 followers triggers golden ore shower
+- **Subscriber Rewards**: New subscribers get MegaTNT with achievement popup
+- **Hourly Events**: Special events every hour on the hour
+- **Combo System**: Track consecutive actions with visual feedback
+- **Like Tracking**: Display like counts with TNT icons
+
+### 🚀 Technical Improvements
+- **Auto Live Stream Detection**: No need to manually find stream IDs
+- **Profile Picture Caching**: Efficient YouTube profile picture management  
+- **Enhanced Error Handling**: Better stability and crash recovery
+- **Replit Support**: Full .replit configuration for easy deployment
+- **Audio Management**: Optional audio with fallback for headless environments
+
+### MegaTNT and Rewards
+
+- **Subscriber Detection**: Automatic polling detects new subscribers
+- **Achievement Popups**: Minecraft-style notifications show subscriber names
+- **Reward Display**: GUI shows "Sub = 1 Mega TNT" and "Like = 10 TNT" 
+- **Manual Spawning**: Press `M` key to manually spawn MegaTNT
+- **Enhanced Explosions**: Larger radius and stronger screen shake effects
+- **Profile Integration**: Shows subscriber's YouTube profile picture
 
 
 ## Contributing

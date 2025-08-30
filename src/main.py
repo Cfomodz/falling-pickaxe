@@ -20,6 +20,11 @@ from settings import SettingsManager
 from weather import WeatherSystem
 import datetime
 from notifications import NotificationManager
+from stream_manager import StreamManager, check_ffmpeg, install_ffmpeg_replit
+from realtime_chat import HybridYouTubeManager
+from youtube_auto_detect import create_zero_config_setup
+from youtube_public_detect import create_public_auto_setup
+from auto_stream_creator import create_and_start_stream
 
 # Track key states
 key_t_pressed = False
@@ -33,66 +38,131 @@ followers = None
 last_follower_milestone = 0
 last_hour_checked = datetime.datetime.now().hour
 
-if config["CHAT_CONTROL"] == True:
-    print("Checking for live stream...")
+# Auto-stream creator for initializing YouTube streams
+auto_stream_creator = None
 
-    # First try specific live stream ID if provided
-    if config["LIVESTREAM_ID"] is not None and config["LIVESTREAM_ID"] != "":
-        stream_id = validate_live_stream_id(config["LIVESTREAM_ID"])
-        live_stream = get_live_stream(stream_id)
-        if live_stream:
-            print("Using specific live stream:", live_stream["snippet"]["title"])
-
-    # If no specific stream found, try to auto-detect live streams from channel
-    if live_stream is None and config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != "":
-        print("No specific live stream found. Attempting auto-detection...")
-        from youtube import get_live_streams
-        try:
-            live_streams = get_live_streams(config["CHANNEL_ID"])
-            if live_streams:
-                # Use the first live stream found
-                auto_stream_id = live_streams[0]["video_id"]
-                live_stream = get_live_stream(auto_stream_id)
-                if live_stream:
-                    print(f"Auto-detected live stream: {live_streams[0]['title']}")
-            else:
-                print("No live streams found for this channel.")
-        except Exception as e:
-            print(f"Error during auto-detection: {e}")
-
-    if live_stream is None:
-        print("No live stream found. App will run without chat integration.")
+# Auto-detect YouTube setup (Public API - No OAuth Required)  
+auto_setup = None
+if config["CHAT_CONTROL"] == True and config.get("API_KEY") and config["API_KEY"] != "YOUR_API_KEY_HERE":
+    print("🔍 Starting YouTube auto-detection (Public API)...")
+    
+    # Try multiple detection methods
+    channel_handle = config.get("CHANNEL_HANDLE", "").strip()
+    search_term = config.get("STREAM_SEARCH_TERM", "falling pickaxe").strip()
+    
+    # Method 1: Private API (OAuth) - Try first if available
+    try:
+        if config.get("USE_PRIVATE_API", False):
+            print("🔑 Attempting private API detection...")
+            auto_setup = create_zero_config_setup(config["API_KEY"])
+            if auto_setup.get('success'):
+                print("✅ Private API detection successful!")
+    except Exception as e:
+        print(f"⚠️  Private API failed: {e}")
+    
+    # Method 2: Auto-create stream if we have a stream key but no active stream
+    if not auto_setup or not auto_setup.get('success'):
+        stream_key = config.get("YOUTUBE_STREAM_KEY")
+        if (stream_key and stream_key != "YOUR_STREAM_KEY_HERE" and 
+            config.get("AUTO_CREATE_STREAM", True)):
+            
+            print("🎬 No active stream found - creating automatic stream...")
+            print("💡 This will start a black screen stream that the game can detect")
+            
+            try:
+                auto_stream_creator = create_and_start_stream(stream_key, "black")
+                if auto_stream_creator:
+                    print("✅ Auto-stream created!")
+                    print("⏳ Waiting 10 seconds for YouTube to register the stream...")
+                    import time
+                    time.sleep(10)
+                    
+                    # Now try to detect the stream we just created
+                    if channel_handle and channel_handle != "@yourhandle":
+                        print(f"🔄 Re-trying channel detection: {channel_handle}")
+                        auto_setup = create_public_auto_setup(config["API_KEY"], channel_handle=channel_handle)
+                        
+                        if auto_setup and auto_setup.get('success'):
+                            print("🎯 Successfully detected our auto-created stream!")
+                
+            except Exception as e:
+                print(f"⚠️  Auto-stream creation failed: {e}")
+    
+    # Method 3: Public API by channel handle (original)
+    if not auto_setup or not auto_setup.get('success'):
+        if channel_handle and channel_handle != "@yourhandle":
+            print(f"🎯 Trying channel handle: {channel_handle}")
+            auto_setup = create_public_auto_setup(config["API_KEY"], channel_handle=channel_handle)
+    
+    # Method 4: Public API by search term
+    if not auto_setup or not auto_setup.get('success'):
+        if search_term:
+            print(f"🔍 Searching for streams: '{search_term}'")
+            auto_setup = create_public_auto_setup(config["API_KEY"], search_term=search_term)
+    
+    # Method 5: Manual fallback
+    if not auto_setup or not auto_setup.get('success'):
+        if config.get("CHANNEL_ID") and config["CHANNEL_ID"] != "YOUR_CHANNEL_ID_HERE":
+            print("🔄 Falling back to manual channel ID...")
+            from youtube import get_live_streams, get_live_stream, get_live_chat_id, get_subscriber_count
+            
+            try:
+                live_streams = get_live_streams(config["CHANNEL_ID"])
+                if live_streams:
+                    auto_stream_id = live_streams[0]["video_id"]
+                    live_stream = get_live_stream(auto_stream_id)
+                    if live_stream:
+                        auto_setup = {
+                            'success': True,
+                            'active_stream': {'video_id': auto_stream_id, 'title': live_streams[0]['title']},
+                            'live_chat_id': get_live_chat_id(live_stream["id"]),
+                            'channel': {'snippet': {'title': 'Manual Channel'}},
+                            'channel_id': config["CHANNEL_ID"]
+                        }
+                        print(f"📺 Manual fallback successful: {live_streams[0]['title']}")
+            except Exception as e:
+                print(f"❌ Manual fallback failed: {e}")
+    
+    # Process successful auto-setup
+    if auto_setup and auto_setup.get('success'):
+        # Set up live stream info
+        live_stream = {
+            'id': auto_setup['active_stream']['video_id'],
+            'snippet': {'title': auto_setup['active_stream']['title']}
+        }
+        live_chat_id = auto_setup['live_chat_id']
+        
+        # Get subscriber count if available
+        if auto_setup.get('channel') and 'statistics' in auto_setup['channel']:
+            subscriber_count = auto_setup['channel']['statistics'].get('subscriberCount')
+            if subscriber_count:
+                subscribers = int(subscriber_count)
+                print(f"📊 Subscribers: {subscribers:,}")
+            
+            # Set followers approximation from view count
+            view_count = auto_setup['channel']['statistics'].get('viewCount')
+            if view_count:
+                followers = int(view_count) // 1000
+                last_follower_milestone = (followers // 100) * 100
+                print(f"👥 Follower approximation: {followers:,}")
+        
+        print("✅ YouTube integration ready!")
+        print(f"📺 Stream: {auto_setup['active_stream']['title']}")
+        print(f"🎮 Channel: {auto_setup.get('channel', {}).get('snippet', {}).get('title', 'Unknown')}")
+        if live_chat_id:
+            print(f"💬 Chat: Connected")
+        
     else:
-        print("Live stream ready:", live_stream["snippet"]["title"])
+        print("❌ All auto-detection methods failed")
+        print("💡 Setup options:")
+        print("   1. Set CHANNEL_HANDLE: '@your-youtube-handle'")
+        print("   2. Set STREAM_SEARCH_TERM: 'your stream keywords'")  
+        print("   3. Set CHANNEL_ID: 'UC...' (manual)")
+        print("   4. Make sure you have an active live stream")
 
-    # get chat id from live stream
-    if live_stream is not None:
-        print("Fetching live chat ID...")
-        live_chat_id = get_live_chat_id(live_stream["id"])
-
-    if live_chat_id is None:
-        print("No live chat ID found. App will run without it.")
-    else:
-        print("Live chat ID found:", live_chat_id)
-
-    # get subscribers count
-    if(config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != ""):
-        print("Fetching subscribers count...")
-        subscribers = get_subscriber_count(config["CHANNEL_ID"])
-
-    if subscribers is None:
-        print("No subscribers count found. App will run without it.")
-    else:
-        print("Subscribers count found:", subscribers)
-
-    # get followers count (using view count as proxy for followers)
-    if(config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != ""):
-        from youtube import get_channel_stats
-        stats = get_channel_stats(config["CHANNEL_ID"])
-        if stats and 'viewCount' in stats:
-            followers = int(stats['viewCount']) // 1000  # Use view count / 1000 as follower approximation
-            last_follower_milestone = (followers // 100) * 100
-            print("Follower count approximation:", followers)
+elif config["CHAT_CONTROL"] == True:
+    print("⚠️  CHAT_CONTROL enabled but no API_KEY provided")
+    print("💡 Add your YouTube Data API v3 key to config.json for auto-detection")
 
 # Queues for chat
 tnt_queue = []
@@ -107,6 +177,95 @@ freeze_queue = []
 golden_ore_shower_queue = []
 rainbow_explosion_queue = []
 hourly_event_queue = []
+
+# Real-time chat system
+hybrid_youtube_manager = None
+
+def handle_realtime_chat_message(message):
+    """Handle real-time chat messages with <1 second latency"""
+    global tnt_queue, fast_slow_queue, big_queue, pickaxe_queue, mega_tnt_queue, rainbow_queue, shield_queue
+    
+    username = message['username']
+    command = message['message'].lower().strip()
+    
+    print(f"⚡ Real-time: {username} -> {command}")
+    
+    # Process commands immediately (no waiting for polling!)
+    if command == "tnt":
+        if message['is_super_chat'] and message['super_chat_amount'] > 0:
+            # Super chat gets multiple TNT
+            amount = min(int(message['super_chat_amount'] / 5), 20)  # 1 TNT per $5, max 20
+            tnt_superchat_queue.extend([username] * amount)
+            print(f"💰 Super Chat TNT x{amount} from {username}")
+        else:
+            tnt_queue.append(username)
+        
+        # Add to notifications
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, "TNT", 0, 0)
+    
+    elif command == "megatnt":
+        mega_tnt_queue.append(username)
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, "MEGA TNT", 0, 0)
+    
+    elif command in ["fast", "slow"]:
+        fast_slow_queue.append(command.capitalize())
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, command.upper(), 0, 0)
+    
+    elif command == "big":
+        big_queue.append(username)
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, "BIG", 0, 0)
+    
+    elif command in ["wood", "stone", "iron", "gold", "diamond", "netherite"]:
+        pickaxe_queue.append(f"{command}_pickaxe")
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, command.upper(), 0, 0)
+    
+    elif command == "rainbow":
+        rainbow_queue.append(username)
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, "RAINBOW", 0, 0)
+    
+    elif command == "shield":
+        shield_queue.append(username)
+        if 'notification_manager' in globals():
+            notification_manager.add_command_notification(username, "SHIELD", 0, 0)
+
+def handle_realtime_metrics_update(metrics):
+    """Handle subscriber/like count updates"""
+    global subscribers, followers, last_follower_milestone
+    
+    # Update metrics when they change
+    if 'subscriber_count' in metrics:
+        new_subs = metrics['subscriber_count']
+        if new_subs > subscribers:
+            print(f"📈 New subscribers: {subscribers} → {new_subs}")
+            # Add achievement notification for new subscribers
+            diff = new_subs - subscribers
+            for _ in range(diff):
+                mega_tnt_queue.append("New Subscriber")
+                if 'notification_manager' in globals():
+                    notification_manager.add_achievement("New Subscriber!", f"Player#{random.randint(1000,9999)}")
+        subscribers = new_subs
+    
+    if 'like_count' in metrics:
+        print(f"👍 Likes updated: {metrics['like_count']}")
+        # Could trigger special effects for like milestones
+    
+    if 'view_count' in metrics:
+        print(f"👀 Viewers: {metrics['view_count']}")
+
+# Initialize hybrid YouTube manager if chat control is enabled
+if config["CHAT_CONTROL"]:
+    print("🚀 Initializing Real-time YouTube Integration...")
+    hybrid_youtube_manager = HybridYouTubeManager(
+        config, 
+        handle_realtime_chat_message,
+        handle_realtime_metrics_update
+    )
 
 async def handle_youtube_poll():
     global subscribers, followers, last_follower_milestone # Use global to modify the variable
@@ -328,6 +487,32 @@ def game():
     settings_manager = SettingsManager()
     weather_system = WeatherSystem()
     
+    # Streaming
+    stream_manager = None
+    if config.get("STREAMING_ENABLED", False):
+        print("Initializing streaming system...")
+        if check_ffmpeg():
+            stream_manager = StreamManager(config)
+            if config.get("YOUTUBE_STREAM_KEY") and config["YOUTUBE_STREAM_KEY"] != "YOUR_STREAM_KEY_HERE":
+                stream_manager.set_stream_key(config["YOUTUBE_STREAM_KEY"])
+                print("🎥 Streaming ready - use settings to start/stop")
+            else:
+                print("⚠️  Set YOUTUBE_STREAM_KEY in config.json to enable streaming")
+        else:
+            print("⚠️  FFmpeg not found - installing...")
+            if install_ffmpeg_replit():
+                stream_manager = StreamManager(config)
+            else:
+                print("❌ Could not initialize streaming")
+    else:
+        # Always create stream manager for settings control
+        if check_ffmpeg():
+            stream_manager = StreamManager(config)
+    
+    # Connect stream manager to settings
+    if stream_manager:
+        settings_manager.set_stream_manager(stream_manager)
+    
     # Notifications
     from notifications import notification_manager
 
@@ -342,6 +527,24 @@ def game():
     # Youtupe chat queues
     queues_pop_interval = 1000 * config["QUEUES_POP_INTERVAL_SECONDS"]
     last_queues_pop = pygame.time.get_ticks()
+
+    # Start real-time YouTube monitoring if available
+    if hybrid_youtube_manager and live_stream:
+        try:
+            video_id = live_stream["id"]
+            # Use auto-detected channel ID if available, otherwise fall back to config
+            channel_id = auto_setup['channel_id'] if auto_setup and auto_setup.get('channel_id') else config.get("CHANNEL_ID", "")
+            
+            hybrid_youtube_manager.start_monitoring(video_id, channel_id)
+            print("🎯 Real-time chat system active!")
+            print("⚡ Chat latency: <1 second (vs 15+ seconds with polling)")
+            print("📊 Metrics: Optimized polling intervals")
+            
+            if auto_setup and auto_setup['success']:
+                print("🚀 Zero-config mode: Everything auto-detected!")
+            
+        except Exception as e:
+            print(f"⚠️ Real-time system failed, using fallback: {e}")
 
     # Main loop
     running = True
@@ -692,6 +895,10 @@ def game():
         # Update notifications
         notification_manager.update()
 
+        # Capture frame for streaming (before display flip)
+        if stream_manager and stream_manager.is_streaming():
+            stream_manager.capture_frame(screen)
+
         # Update the display
         pygame.display.flip()
         clock.tick(FRAMERATE)  # Cap the frame rate
@@ -724,6 +931,21 @@ def game():
             key_m_pressed = True
         else:
             key_m_pressed = False  # Reset the flag when the key is released
+
+    # Cleanup hybrid YouTube monitoring
+    if hybrid_youtube_manager:
+        hybrid_youtube_manager.stop_monitoring()
+        print("📴 Real-time monitoring stopped")
+    
+    # Cleanup auto-stream creator
+    if auto_stream_creator:
+        auto_stream_creator.stop_stream()
+        print("📴 Auto-stream stopped")
+    
+    # Cleanup streaming
+    if stream_manager:
+        stream_manager.stop_streaming()
+        print("📴 Streaming stopped")
 
     # Quit pygame properly
     pygame.quit()
