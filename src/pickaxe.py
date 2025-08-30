@@ -88,7 +88,7 @@ class Pickaxe:
         self.space.add(self.body, *self.shapes)
 
         # Add collision handler for pickaxe & blocks
-        handler = space.add_collision_handler(1, 2)  # (Pickaxe type, Block type)
+        handler = self.space.add_collision_handler(1, 2)  # (Pickaxe type, Block type)
         handler.post_solve = self.on_collision
 
     def on_collision(self, arbiter, space, data):
@@ -109,8 +109,8 @@ class Pickaxe:
         else:
             self.sound_manager.play_sound("stone" + str(random.randint(1, 4)))
             
-        # Screen shake based on impact and pickaxe size
-        shake_intensity = max(2, impact_force * (3 if self.is_enlarged else 1))
+        # Screen shake based on impact and pickaxe size (reduced by 90%)
+        shake_intensity = max(0.2, impact_force * (0.3 if self.is_enlarged else 0.1))
         if hasattr(self, 'camera_ref'):
             self.camera_ref.shake(15, shake_intensity)
 

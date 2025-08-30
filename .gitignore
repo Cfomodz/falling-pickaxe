@@ -5,6 +5,8 @@ __pycache__/
 
 default.config.json
 config.json
+client_credentials.json
+youtube_token.json
 
 # C extensions
 *.so

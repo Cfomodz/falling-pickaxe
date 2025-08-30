@@ -229,10 +229,11 @@ class YouTubeChatWebSocket:
 class HybridYouTubeManager:
     """Manages both real-time chat and periodic polling for metrics"""
     
-    def __init__(self, config, chat_callback, metrics_callback):
+    def __init__(self, config, chat_callback, metrics_callback, youtube_service=None):
         self.config = config
         self.chat_callback = chat_callback
         self.metrics_callback = metrics_callback
+        self.youtube_service = youtube_service  # OAuth YouTube service for real API calls
         
         # Real-time chat
         self.chat_websocket = YouTubeChatWebSocket(config, self._handle_chat_message)
@@ -313,17 +314,56 @@ class HybridYouTubeManager:
     
     def _poll_viewer_count(self, video_id):
         """Poll current live viewer count"""
-        # Implementation would use YouTube Data API
-        # This is a placeholder - would need actual API call
-        print(f"📊 Polling viewer count for {video_id}")
+        try:
+            if hasattr(self, 'youtube_service') and self.youtube_service:
+                response = self.youtube_service.videos().list(
+                    part='liveStreamingDetails',
+                    id=video_id
+                ).execute()
+                
+                if response['items']:
+                    live_details = response['items'][0].get('liveStreamingDetails', {})
+                    concurrent_viewers = live_details.get('concurrentViewers')
+                    if concurrent_viewers:
+                        # Could trigger viewer milestone events here
+                        if hasattr(self, 'metrics_callback'):
+                            self.metrics_callback('viewers', int(concurrent_viewers))
+        except Exception:
+            pass  # Fail silently in production
     
     def _poll_like_count(self, video_id):
         """Poll current like count"""
-        print(f"👍 Polling like count for {video_id}")
+        try:
+            if hasattr(self, 'youtube_service') and self.youtube_service:
+                response = self.youtube_service.videos().list(
+                    part='statistics',
+                    id=video_id
+                ).execute()
+                
+                if response['items']:
+                    stats = response['items'][0].get('statistics', {})
+                    like_count = stats.get('likeCount')
+                    if like_count and hasattr(self, 'metrics_callback'):
+                        self.metrics_callback('likes', int(like_count))
+        except Exception:
+            pass  # Fail silently in production
     
     def _poll_subscriber_count(self, channel_id):
         """Poll current subscriber count"""
-        print(f"📈 Polling subscriber count for {channel_id}")
+        try:
+            if hasattr(self, 'youtube_service') and self.youtube_service:
+                response = self.youtube_service.channels().list(
+                    part='statistics',
+                    id=channel_id
+                ).execute()
+                
+                if response['items']:
+                    stats = response['items'][0].get('statistics', {})
+                    sub_count = stats.get('subscriberCount')
+                    if sub_count and hasattr(self, 'metrics_callback'):
+                        self.metrics_callback('subscribers', int(sub_count))
+        except Exception:
+            pass  # Fail silently in production
     
     def stop_monitoring(self):
         """Stop all monitoring"""

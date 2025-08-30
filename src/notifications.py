@@ -185,14 +185,14 @@ class RightPanel:
                     x, y, w, h = atlas_items[category][item]
                     atlas_items[category][item] = (x * BLOCK_SCALE_FACTOR, y * BLOCK_SCALE_FACTOR, w * BLOCK_SCALE_FACTOR, h * BLOCK_SCALE_FACTOR)
             
-            # Cache the icons we need
+            # Cache the icons we need (2x larger)
             mega_tnt_rect = pygame.Rect(atlas_items["block"]["mega_tnt"])
             self.texture_cache["mega_tnt"] = pygame.transform.scale(
-                texture_atlas.subsurface(mega_tnt_rect), (12, 12))
+                texture_atlas.subsurface(mega_tnt_rect), (24, 24))
             
             tnt_rect = pygame.Rect(atlas_items["block"]["tnt"])
             self.texture_cache["tnt"] = pygame.transform.scale(
-                texture_atlas.subsurface(tnt_rect), (12, 12))
+                texture_atlas.subsurface(tnt_rect), (24, 24))
                 
             self.texture_cache_loaded = True
         except:
@@ -201,20 +201,39 @@ class RightPanel:
     def draw(self, surface, screen_width, screen_height):
         panel_x = screen_width - self.width
         
-        # Draw panel background (smaller and more transparent for performance)
-        panel_surface = pygame.Surface((self.width, screen_height))
-        panel_surface.fill((64, 64, 64))
-        panel_surface.set_alpha(180)  # Less opacity for performance
-        surface.blit(panel_surface, (panel_x, 0))
+        # Draw fading panel background
+        fade_start = int(screen_height * 0.33)  # Start fade at 1/3 down
+        fade_end = int(screen_height * 0.45)    # End fade at 45% down
+        
+        # Solid panel for top 1/3
+        if fade_start > 0:
+            panel_surface_top = pygame.Surface((self.width, fade_start))
+            panel_surface_top.fill((64, 64, 64))
+            panel_surface_top.set_alpha(180)
+            surface.blit(panel_surface_top, (panel_x, 0))
+        
+        # Fading section from 33% to 45%
+        if fade_end > fade_start:
+            fade_height = fade_end - fade_start
+            for i in range(fade_height):
+                fade_progress = i / fade_height  # 0.0 to 1.0
+                alpha = int(180 * (1.0 - fade_progress))  # 180 to 0
+                
+                if alpha > 0:
+                    line_surface = pygame.Surface((self.width, 1))
+                    line_surface.fill((64, 64, 64))
+                    line_surface.set_alpha(alpha)
+                    surface.blit(line_surface, (panel_x, fade_start + i))
         
         y_offset = 8  # Start closer to top
         
-        # TOP PLAYERS FIRST (at the top)
-        time_left = int(self.top_players.get_time_until_reset())
-        minutes = time_left // 60
-        seconds = time_left % 60
+        # TOP PLAYERS FIRST (at the top) - countdown disabled
+        # time_left = int(self.top_players.get_time_until_reset())
+        # minutes = time_left // 60
+        # seconds = time_left % 60
+        # players_title = minecraft_font.render_with_shadow(f"TOP ({minutes:02d}:{seconds:02d})", (255, 255, 0), (0, 0, 0), "tiny")
         
-        players_title = minecraft_font.render_with_shadow(f"TOP ({minutes:02d}:{seconds:02d})", (255, 255, 0), (0, 0, 0), "tiny")
+        players_title = minecraft_font.render_with_shadow("TOP", (255, 255, 0), (0, 0, 0), "tiny")
         surface.blit(players_title, (panel_x + 3, y_offset))
         y_offset += players_title.get_height() + 3
         
@@ -223,10 +242,13 @@ class RightPanel:
         for i, (username, activity) in enumerate(top_players):
             rank_color = self.get_rank_color(i)
             
-            # Truncate username for small panel
-            display_name = username[:6] + "..." if len(username) > 6 else username
-            player_text = minecraft_font.render_with_shadow(f"{i+1}.{display_name}:{activity}", rank_color, (0, 0, 0), "tiny")
-            surface.blit(player_text, (panel_x + 3, y_offset))
+            # Extend username to 10 characters, right justified to expand left
+            display_name = username[:10] + "..." if len(username) > 10 else username
+            player_text = minecraft_font.render_with_shadow(display_name, rank_color, (0, 0, 0), "tiny")
+            
+            # Right justify - position text so it can extend beyond panel to the left
+            text_x = panel_x + self.width - 3 - player_text.get_width()
+            surface.blit(player_text, (text_x, y_offset))
             y_offset += player_text.get_height() + 1
         
         y_offset += 10  # Space between sections
@@ -237,8 +259,8 @@ class RightPanel:
         if "mega_tnt" in self.texture_cache:
             surface.blit(self.texture_cache["mega_tnt"], (panel_x + 3, y_offset))
             sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "tiny")
-            surface.blit(sub_text, (panel_x + 18, y_offset))
-            y_offset += 16
+            surface.blit(sub_text, (panel_x + 35, y_offset))  # Moved further right for larger icon
+            y_offset += 26  # Increased for larger icon
             
             # Show recent subscriber name if available
             if self.recent_subscriber and pygame.time.get_ticks() < self.subscriber_display_timer:
@@ -256,14 +278,17 @@ class RightPanel:
         y_offset += like_text.get_height() + 1
         
         if "tnt" in self.texture_cache:
-            surface.blit(self.texture_cache["tnt"], (panel_x + 3, y_offset))
-            like_count = minecraft_font.render_with_shadow("=10", (100, 255, 100), (0, 0, 0), "tiny")
-            surface.blit(like_count, (panel_x + 18, y_offset))
-            y_offset += 16
+            like_count = minecraft_font.render_with_shadow("10X", (100, 255, 100), (0, 0, 0), "tiny")
+            surface.blit(like_count, (panel_x + 3, y_offset))
+            surface.blit(self.texture_cache["tnt"], (panel_x + 35, y_offset))  # Moved further right
+            y_offset += 26  # Increased for larger icon
         else:
-            like_count = minecraft_font.render_with_shadow("=10 TNT", (100, 255, 100), (0, 0, 0), "tiny")
+            like_count = minecraft_font.render_with_shadow("10 TNT", (100, 255, 100), (0, 0, 0), "tiny")
             surface.blit(like_count, (panel_x + 3, y_offset))
             y_offset += like_count.get_height() + 6
+        
+        # Add gap before COMMANDS section
+        y_offset += 10  # Extra line break spacing
         
         # COMMANDS section (simplified, single column)
         commands_title = minecraft_font.render_with_shadow("Commands:", (255, 255, 255), (0, 0, 0), "tiny")

@@ -98,7 +98,7 @@ class AutoStreamCreator:
             '-i', f'color=c=black:size={self.width}x{self.height}:rate={self.fps}',
             '-f', 'lavfi',
             '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-            '-vf', f'drawtext=fontfile=/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf:text=\'Starting Soon...\':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=(h-text_h)/2',
+            '-vf', f'drawtext=text=\'Starting Soon...\':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=(h-text_h)/2',
             '-c:v', 'libx264',
             '-preset', 'veryfast',
             '-tune', 'zerolatency',

@@ -116,7 +116,7 @@ class Hud:
         if fast_slow_active:
             fast_slow_text = f"{fast_slow}"
         else:
-            fast_slow_text = "Normal"
+            fast_slow_text = "Fast"
         fast_slow_surface = render_text_with_outline(fast_slow_text, self.font, (255, 255, 255), (0, 0, 0), outline_width=2)
         fast_slow_x = x + self.spacing
         fast_slow_y = y + 2 * self.spacing + fast_slow_surface.get_height()
