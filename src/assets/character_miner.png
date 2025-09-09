@@ -1,0 +1,6 @@
+# PLACEHOLDER: Character sprite (miner/digger)
+# Replace with actual sprite image (PNG format)
+# Suggested size: 32x32 pixels to match BLOCK_SIZE
+# Suggested: Simple miner character with helmet, pickaxe, overalls
+# Should face right by default (code will flip for left facing)
+# Colors: contrasting with dirt browns - maybe blue overalls, yellow helmet

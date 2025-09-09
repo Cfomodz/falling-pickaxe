@@ -148,9 +148,8 @@ class RightPanel:
         self.width = width
         self.top_players = TopPlayersTracker()
         self.commands = [
-            "tnt", "fast", "slow", "big", "wood", "stone", 
-            "iron", "gold", "diamond", "netherite", "rainbow", 
-            "shield", "freeze"
+            "left", "right", "left2", "left3", "right2", "right3",
+            "fast", "slow", "upgrade diamond_gem", "upgrade gold_gem"
         ]
         
         # Subscriber tracking for mega TNT display

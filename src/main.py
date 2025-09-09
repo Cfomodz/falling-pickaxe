@@ -1,23 +1,58 @@
 import time
 import pygame
-import pymunk
-import pymunk.pygame_util
 from youtube import get_live_stream, get_new_live_chat_messages, get_live_chat_id, get_subscriber_count, validate_live_stream_id, get_live_streams
 from config import config
 from atlas import create_texture_atlas
 from pathlib import Path
-from chunk import get_block, clean_chunks, delete_block, chunks
-from constants import BLOCK_SCALE_FACTOR, BLOCK_SIZE, CHUNK_HEIGHT, CHUNK_WIDTH, INTERNAL_HEIGHT, INTERNAL_WIDTH, FRAMERATE
-from pickaxe import Pickaxe
+from world import World
+from constants import BLOCK_SCALE_FACTOR, BLOCK_SIZE, INTERNAL_HEIGHT, INTERNAL_WIDTH, FRAMERATE
+from character import Character
 from camera import Camera
 from sound import SoundManager
-from tnt import Tnt, MegaTnt
+
+def get_block_color(block_type):
+    """Get color for different block types for visualization"""
+    colors = {
+        "dirt_light": (139, 115, 85),    # Light brown
+        "dirt_medium": (101, 79, 57),    # Medium brown  
+        "dirt_dark": (62, 48, 36),       # Dark brown
+        "clay": (178, 154, 108),         # Clay color
+        "bedrock": (64, 64, 64),         # Dark gray
+        
+        # Rocks (darker shades)
+        "talc_rock": (200, 200, 200),    # White-ish
+        "gypsum_rock": (255, 248, 220),  # Cream
+        "calcite_rock": (255, 255, 240), # Off white
+        "fluorite_rock": (186, 85, 211), # Purple
+        "apatite_rock": (0, 255, 127),   # Spring green
+        "orthoclase_rock": (255, 192, 203), # Pink
+        "quartz_rock": (255, 255, 255),  # White
+        "topaz_rock": (255, 215, 0),     # Gold
+        "corundum_rock": (220, 20, 60),  # Crimson
+        "diamond_rock": (185, 242, 255), # Light blue
+    }
+    return colors.get(block_type, (100, 100, 100))  # Default gray
+
+def get_gem_color(gem_type):
+    """Get color for different gem types"""
+    colors = {
+        "talc_gem": (220, 220, 220),     # Light gray
+        "gypsum_gem": (255, 250, 240),   # Cream
+        "calcite_gem": (255, 255, 255),  # White
+        "fluorite_gem": (138, 43, 226),  # Purple
+        "apatite_gem": (50, 205, 50),    # Green
+        "orthoclase_gem": (255, 105, 180), # Pink
+        "quartz_gem": (240, 248, 255),   # Alice blue
+        "topaz_gem": (255, 215, 0),      # Gold
+        "corundum_gem": (220, 20, 60),   # Red
+        "diamond_gem": (185, 242, 255),  # Diamond blue
+    }
+    return colors.get(gem_type, (255, 255, 255))  # Default white
 import asyncio
 import threading
 import random
 from hud import Hud
 from settings import SettingsManager
-from weather import WeatherSystem
 from notifications import notification_manager
 import datetime
 from notifications import NotificationManager
@@ -239,60 +274,73 @@ elif config["CHAT_CONTROL"] == True:
     print("⚠️  CHAT_CONTROL enabled but no API_KEY provided")
     print("💡 Add your YouTube Data API v3 key to config.json for auto-detection")
 
-# Queues for chat
-tnt_queue = []
-tnt_superchat_queue = []
-fast_slow_queue = []
-big_queue = []
-pickaxe_queue = []
-mega_tnt_queue = []
-rainbow_queue = []
-shield_queue = []
-freeze_queue = []
-golden_ore_shower_queue = []
-rainbow_explosion_queue = []
+# Queues for chat - Digging game commands
+speed_queue = []  # fast, slow, normal speed changes
+left_queue = []   # move left commands
+right_queue = []  # move right commands
+tool_upgrade_queue = []  # tool upgrade requests
+powerup_queue = []  # power-up activations
+power_up_queue = []  # efficiency boost commands
+rainbow_queue = []  # rainbow effect commands
+shield_queue = []  # shield effect commands
+freeze_queue = []  # freeze effect commands
+fast_slow_queue = []  # speed change commands
+big_queue = []  # big effect commands
+mega_tnt_queue = []  # celebration commands
+golden_ore_shower_queue = []  # milestone celebrations
+gem_shower_queue = []  # special gem events
+subscriber_celebration_queue = []  # subscriber milestones
 hourly_event_queue = []
 
 # Real-time chat system
 hybrid_youtube_manager = None
 
 def handle_realtime_chat_message(message):
-    """Handle real-time chat messages with <1 second latency"""
-    global tnt_queue, fast_slow_queue, big_queue, pickaxe_queue, mega_tnt_queue, rainbow_queue, shield_queue
+    """Handle real-time chat messages with <1 second latency - Digging Game Commands"""
+    global speed_queue, left_queue, right_queue, tool_upgrade_queue, powerup_queue, gem_shower_queue
     
     username = message['username']
     command = message['message'].lower().strip()
     
     print(f"⚡ Real-time: {username} -> {command}")
     
-    # Process commands immediately (no waiting for polling!)
-    if command == "tnt":
-        if message['is_super_chat'] and message['super_chat_amount'] > 0:
-            # Super chat gets multiple TNT
-            amount = min(int(message['super_chat_amount'] / 5), 20)  # 1 TNT per $5, max 20
-            tnt_superchat_queue.extend([username] * amount)
-            print(f"💰 Super Chat TNT x{amount} from {username}")
-        else:
-            tnt_queue.append(username)
-        
-        # Add to notifications
-        notification_manager.add_command_notification(username, "TNT", 0, 0)
-    
-    elif command == "megatnt":
-        mega_tnt_queue.append(username)
-        notification_manager.add_command_notification(username, "MEGA TNT", 0, 0)
-    
-    elif command in ["fast", "slow"]:
-        fast_slow_queue.append((username, command.capitalize()))
+    # Digging game commands
+    if command in ["fast", "slow", "normal"]:
+        speed_queue.append((username, command))
         notification_manager.add_command_notification(username, command.upper(), 0, 0)
     
+    elif command in ["left", "right"]:
+        if command == "left":
+            left_queue.append(username)
+        else:
+            right_queue.append(username)
+        notification_manager.add_command_notification(username, command.upper(), 0, 0)
+    
+    elif command in ["left2", "left3", "right2", "right3"]:
+        # Multi-space movement
+        direction = "left" if "left" in command else "right"
+        spaces = int(command[-1])
+        if direction == "left":
+            left_queue.append((username, spaces))
+        else:
+            right_queue.append((username, spaces))
+        notification_manager.add_command_notification(username, f"{direction.upper()}{spaces}", 0, 0)
+    
+    elif command.startswith("upgrade "):
+        # Tool upgrade command: "upgrade diamond_gem" 
+        gem_type = command.replace("upgrade ", "").strip()
+        tool_upgrade_queue.append((username, gem_type))
+        notification_manager.add_command_notification(username, f"UPGRADE {gem_type.upper()}", 0, 0)
+    
     elif command == "big":
-        big_queue.append(username)
+        # Power-up system: big effect placeholder
+        power_up_queue.append((username, "big_effect"))
         notification_manager.add_command_notification(username, "BIG", 0, 0)
     
     elif command in ["wood", "stone", "iron", "gold", "diamond", "netherite"]:
-        pickaxe_queue.append((username, f"{command}_pickaxe"))
-        notification_manager.add_command_notification(username, command.upper(), 0, 0)
+        # Power-up system placeholder - convert pickaxe commands to tool efficiency boosts
+        power_up_queue.append((username, f"efficiency_{command}"))
+        notification_manager.add_command_notification(username, f"EFFICIENCY {command.upper()}", 0, 0)
     
     elif command == "rainbow":
         rainbow_queue.append(username)
@@ -314,7 +362,7 @@ def handle_realtime_metrics_update(metrics):
             # Add achievement notification for new subscribers
             diff = new_subs - subscribers
             for _ in range(diff):
-                mega_tnt_queue.append("New Subscriber")
+                subscriber_celebration_queue.append("New Subscriber")
                 notification_manager.add_achievement("New Subscriber!", f"Player#{random.randint(1000,9999)}")
         subscribers = new_subs
     
@@ -346,8 +394,8 @@ async def handle_youtube_poll():
     if subscribers is not None:
         new_subscribers = get_subscriber_count(config["CHANNEL_ID"])
         if new_subscribers is not None and new_subscribers > subscribers:
-            mega_tnt_queue.append("New Subscriber") # Add to mega tnt queue
-            rainbow_explosion_queue.append("New Subscriber Rainbow") # Add rainbow explosion
+            subscriber_celebration_queue.append("New Subscriber")
+            subscriber_celebration_queue.append("New Subscriber Rainbow")
             subscribers = new_subscribers # Update subscriber count
 
     # Check follower milestones
@@ -358,7 +406,7 @@ async def handle_youtube_poll():
             current_followers = int(stats['viewCount']) // 1000
             current_milestone = (current_followers // 100) * 100
             if current_milestone > last_follower_milestone:
-                golden_ore_shower_queue.append(f"{current_milestone} Followers")
+                gem_shower_queue.append(f"{current_milestone} Followers")
                 last_follower_milestone = current_milestone
                 followers = current_followers
 
@@ -390,42 +438,17 @@ async def handle_youtube_poll():
                  tnt_superchat_queue.append((author, text))
                  print(f"Added {author} to Superchat TNT queue")
 
-        if "fast" in text.lower() and author not in [entry[0] for entry in fast_slow_queue]:
-            fast_slow_queue.append((author, "Fast"))
-            print(f"Added {author} to Fast/Slow queue (Fast)")
-        elif "slow" in text.lower() and author not in [entry[0] for entry in fast_slow_queue]:
-            fast_slow_queue.append((author, "Slow"))
-            print(f"Added {author} to Fast/Slow queue (Slow)")
+        if "fast" in text.lower() and author not in [entry[0] for entry in speed_queue]:
+            speed_queue.append((author, "fast"))
+            print(f"Added {author} to Speed queue (fast)")
+        elif "slow" in text.lower() and author not in [entry[0] for entry in speed_queue]:
+            speed_queue.append((author, "slow"))
+            print(f"Added {author} to Speed queue (slow)")
 
-        if "big" in text.lower() and author not in big_queue:
-            big_queue.append(author)
-            print(f"Added {author} to Big queue")
+        if "big" in text.lower() and author not in power_up_queue:
+            power_up_queue.append((author, "big_effect"))
+            print(f"Added {author} to Power-up queue (big_effect)")
 
-        # Check for pickaxe commands (add author and pickaxe type to pickaxe_queue)
-        if "wood" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "wooden_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (wooden_pickaxe)")
-        elif "stone" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "stone_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (stone_pickaxe)")
-        elif "iron" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "iron_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (iron_pickaxe)")
-        elif "gold" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "golden_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (golden_pickaxe)")
-        elif "diamond" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "diamond_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (diamond_pickaxe)")
-        elif "netherite" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "netherite_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (netherite_pickaxe)")
 
         # Check for rainbow command
         if "rainbow" in text_lower and author not in rainbow_queue:
@@ -443,7 +466,7 @@ async def handle_youtube_poll():
             print(f"Added {author} to Freeze queue")
 
     # print the queue counts (optional, for debugging)
-    # print(f"Queues: TNT={len(tnt_queue)}, Superchat TNT={len(tnt_superchat_queue)}, Fast/Slow={len(fast_slow_queue)}, Big={len(big_queue)}, Pickaxe={len(pickaxe_queue)}, MegaTNT={len(mega_tnt_queue)}")
+    # print(f"Queues: Speed={len(speed_queue)}, Power-up={len(power_up_queue)}, Tool Upgrade={len(tool_upgrade_queue)}, Gem Shower={len(gem_shower_queue)}")
 
 def start_event_loop(loop):
     asyncio.set_event_loop(loop)
@@ -462,16 +485,14 @@ def game():
     pygame.init()
     clock = pygame.time.Clock()
 
-    # Pymunk physics
-    space = pymunk.Space()
-    space.gravity = (0, 1000)  # (x, y) - down is positive y
-
     # Create a resizable window
     screen_size = (window_width, window_height)
     screen = pygame.display.set_mode(screen_size, pygame.RESIZABLE)
-    pygame.display.set_caption("Falling Pickaxe")
+    pygame.display.set_caption("Digging Adventure")
     # set icon
-    icon = pygame.image.load(Path(__file__).parent.parent / "src/assets/pickaxe" / "diamond_pickaxe.png")
+    # Create simple icon for digging game
+    icon = pygame.Surface((32, 32))
+    icon.fill((139, 115, 85))  # Brown dirt color
     pygame.display.set_icon(icon)
 
     # Create an internal surface with fixed resolution
@@ -501,7 +522,7 @@ def game():
     #sounds
     sound_manager = SoundManager()
 
-    sound_manager.load_sound("tnt", assets_dir / "sounds" / "tnt.mp3", 0.3)
+    # sound_manager.load_sound("tnt", assets_dir / "sounds" / "tnt.mp3", 0.3)  # Removed - not needed for digging game
     sound_manager.load_sound("stone1", assets_dir / "sounds" / "stone1.wav", 0.5)
     sound_manager.load_sound("stone2", assets_dir / "sounds" / "stone2.wav", 0.5)
     sound_manager.load_sound("stone3", assets_dir / "sounds" / "stone3.wav", 0.5)
@@ -517,38 +538,27 @@ def game():
         if achievement_sound_path.exists():
             sound_manager.load_sound("achievement", achievement_sound_path, 0.5)
         else:
-            # Fallback to TNT sound for achievement
-            sound_manager.load_sound("achievement", assets_dir / "sounds" / "tnt.mp3", 0.3)
+            # No achievement sound needed for digging game
+            pass
     except:
-        # Fallback to TNT sound for achievement
-        sound_manager.load_sound("achievement", assets_dir / "sounds" / "tnt.mp3", 0.3)
+        # No achievement sound fallback needed
+        pass
 
-    # Camera (create before pickaxe to avoid reference error)
+    # Camera
     camera = Camera()
 
-    # Pickaxe
-    pickaxe = Pickaxe(space, INTERNAL_WIDTH // 2, INTERNAL_HEIGHT // 2, texture_atlas.subsurface(atlas_items["pickaxe"]["wooden_pickaxe"]), sound_manager)
-    pickaxe.camera_ref = camera  # Connect camera for screen shake effects
+    # World - Generate the digging world
+    world = World(width=50)  # 50 blocks wide
 
-    # TNT
-    last_tnt_spawn = pygame.time.get_ticks()
-    tnt_spawn_interval = 1000 * random.uniform(config["TNT_SPAWN_INTERVAL_SECONDS_MIN"], config["TNT_SPAWN_INTERVAL_SECONDS_MAX"])
-    tnt_list = []  # List to keep track of spawned TNT objects
+    # Character - Replace physics pickaxe with controlled character
+    # Create simple character sprite (colored square)
+    character_texture = pygame.Surface((BLOCK_SIZE, BLOCK_SIZE))
+    character_texture.fill((255, 255, 0))  # Yellow character
+    character = Character(INTERNAL_WIDTH // 2, 0, character_texture, sound_manager)
+    character.camera_ref = camera  # Connect camera for screen shake effects
 
-    # Random Pickaxe
-    last_random_pickaxe = pygame.time.get_ticks()
-    random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
-
-    # Pickaxe enlargement
-    last_enlarge = pygame.time.get_ticks()
-    enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
-    enlarge_duration = 1000 * config["PICKAXE_ENLARGE_DURATION_SECONDS"]
-
-    # Fast slow
-    fast_slow_active = False
-    fast_slow = "Fast"
-    fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
-    last_fast_slow = pygame.time.get_ticks()
+    # Game state
+    current_dig_speed = "fast"  # Default speed
 
     # HUD
     hud = Hud(texture_atlas, atlas_items)
@@ -556,9 +566,8 @@ def game():
     # Explosions
     explosions = []
 
-    # Settings and Weather
+    # Settings
     settings_manager = SettingsManager()
-    weather_system = WeatherSystem()
     
     # Streaming - check if already initialized from OAuth or other auto-setup
     if 'stream_manager' not in locals():
@@ -675,25 +684,17 @@ def game():
                 screen = pygame.display.set_mode((window_width, window_height), pygame.RESIZABLE)
 
         # ++++++++++++++++++  UPDATE ++++++++++++++++++
-        # Determine which chunks are visible
-        # Update physics
-
-        step_speed = 1 / FRAMERATE  # Fixed time step for physics simulation
-        if fast_slow_active and fast_slow == "Fast":
-            step_speed = 1 / (FRAMERATE / 2)
-        elif fast_slow_active and fast_slow == "Slow":
-            step_speed = 1 / (FRAMERATE * 2)
-
-        space.step(step_speed)
-
-        start_chunk_y = int(pickaxe.body.position.y // (CHUNK_HEIGHT * BLOCK_SIZE) - 1) - 1
-        end_chunk_y = int(pickaxe.body.position.y + INTERNAL_HEIGHT) // (CHUNK_HEIGHT * BLOCK_SIZE)  + 1
-
-        # Update pickaxe
-        pickaxe.update()
-
-        # Update camera
-        camera.update(pickaxe.body.position.y)
+        # Update character and world
+        current_time = pygame.time.get_ticks()
+        
+        # Ensure world is generated to character depth
+        world.ensure_generated_to_depth(character.grid_y + 20)
+        
+        # Update character (handles digging automatically)
+        character.update(world)
+        
+        # Update camera to follow character
+        camera.update(character.y)
 
         # ++++++++++++++++++  DRAWING ++++++++++++++++++
         # Clear the internal surface
@@ -702,51 +703,10 @@ def game():
         # Fill internal surface with the background
         internal_surface.blit(background_image, ((INTERNAL_WIDTH - background_width) // 2, (INTERNAL_HEIGHT - background_height) // 2))
 
-        # Check if it's time to spawn a new TNT (regular random spawn)
+        # Digging game - no automatic spawns needed, character digs automatically
         current_time = pygame.time.get_ticks()
-        if settings_manager.get_setting("auto_tnt_spawn") and (not config["CHAT_CONTROL"] or (not tnt_queue and not tnt_superchat_queue and not mega_tnt_queue)) and current_time - last_tnt_spawn >= tnt_spawn_interval:
-             # Example: spawn TNT at position (400, 300) with a given texture
-             new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
-               texture_atlas, atlas_items, sound_manager)
-             tnt_list.append(new_tnt)
-             last_tnt_spawn = current_time
-             # New random interval for the next TNT spawn
-             tnt_spawn_interval = 1000 * random.uniform(config["TNT_SPAWN_INTERVAL_SECONDS_MIN"], config["TNT_SPAWN_INTERVAL_SECONDS_MAX"])
-
-        # Check if it's time to change the pickaxe (random)
-        if settings_manager.get_setting("auto_pickaxe_change") and (not config["CHAT_CONTROL"] or not pickaxe_queue) and current_time - last_random_pickaxe >= random_pickaxe_interval:
-            pickaxe.random_pickaxe(texture_atlas, atlas_items)
-            last_random_pickaxe = current_time
-            # New random interval for the next pickaxe change
-            random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
-
-        # Check if it's time for pickaxe enlargement (random)
-        if settings_manager.get_setting("auto_size_change") and (not config["CHAT_CONTROL"] or not big_queue) and current_time - last_enlarge >= enlarge_interval:
-            pickaxe.enlarge(enlarge_duration)
-            last_enlarge = current_time + enlarge_duration
-            # New random interval for the next enlargement
-            enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
-
-        # Check if it's time to change speed (random)
-        if settings_manager.get_setting("auto_speed_change") and (not config["CHAT_CONTROL"] or not fast_slow_queue) and current_time - last_fast_slow >= fast_slow_interval and not fast_slow_active:
-            # Randomly choose between "fast" and "slow"
-            fast_slow = random.choice(["Fast", "Slow"])
-            print("Changing speed to:", fast_slow)
-            fast_slow_active = True
-            last_fast_slow = current_time
-            # New random interval for the next fast/slow spawn
-            fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
-        elif current_time - last_fast_slow >= (1000 * config["FAST_SLOW_DURATION_SECONDS"]) and fast_slow_active:
-            fast_slow_active = False
-            fast_slow = "Fast"  # Always revert to Fast
-            last_fast_slow = current_time
-
-        # Update all TNTs
-        for tnt in tnt_list:
-            tnt.update(tnt_list, explosions, camera)
-
-        # Update weather system
-        weather_system.update(settings_manager)
+        
+        # Character handles digging automatically in its update method
 
         # Update settings (including auto performance mode)
         settings_manager.update(clock.get_fps())
@@ -757,42 +717,59 @@ def game():
             last_yt_poll = current_time
             asyncio.run_coroutine_threadsafe(handle_youtube_poll(), asyncio_loop)
 
-        # Process chat queues
+        # Process chat queues - Digging Game Commands
         if config["CHAT_CONTROL"] and current_time - last_queues_pop >= queues_pop_interval:
             last_queues_pop = current_time
 
-            # Handle regular TNT from chat command
-            if tnt_queue:
-                author = tnt_queue.pop(0)
-                print(f"Spawning regular TNT for {author} (from chat command)")
-                
-                # Download profile picture if enabled
-                settings = SettingsManager()
-                if settings.get_setting("download_profile_pictures"):
-                    from youtube import get_user_profile_picture
-                    from profile_picture_manager import profile_picture_manager
-                    import threading
-                    
-                    def download_pic():
-                        pic_url = get_user_profile_picture(author)
-                        if pic_url:
-                            profile_picture_manager.download_profile_picture(author, pic_url)
-                    
-                    # Download in background to avoid blocking
-                    threading.Thread(target=download_pic, daemon=True).start()
-                
-                new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
-                             texture_atlas, atlas_items, sound_manager, owner_name=author)
-                tnt_list.append(new_tnt)
-                last_tnt_spawn = current_time
+            # Handle speed change commands
+            if speed_queue:
+                author, speed = speed_queue.pop(0)
+                print(f"Changing dig speed for {author} to {speed}")
+                character.set_dig_speed(speed)
+                current_dig_speed = speed
                 
                 # Add command notification if enabled
+                settings = SettingsManager()
                 if settings.get_setting("show_command_notifications"):
-                    notification_manager.add_command_notification(author, "tnt", pickaxe.body.position)
+                    notification_manager.add_command_notification(author, speed.upper(), (character.x, character.y))
+            
+            # Handle left movement commands
+            if left_queue:
+                entry = left_queue.pop(0)
+                if isinstance(entry, tuple):
+                    author, spaces = entry
+                    print(f"Moving {author} left by {spaces} spaces")
+                    character.move_horizontal(-1, spaces)
+                else:
+                    author = entry
+                    spaces = 1
+                    print(f"Moving {author} left by 1 space")
+                    character.move_horizontal(-1, 1)
+                    
+                settings = SettingsManager()
+                if settings.get_setting("show_command_notifications"):
+                    notification_manager.add_command_notification(author, f"LEFT{spaces if spaces > 1 else ''}", (character.x, character.y))
+            
+            # Handle right movement commands  
+            if right_queue:
+                entry = right_queue.pop(0)
+                if isinstance(entry, tuple):
+                    author, spaces = entry
+                    print(f"Moving {author} right by {spaces} spaces")
+                    character.move_horizontal(1, spaces)
+                else:
+                    author = entry
+                    spaces = 1
+                    print(f"Moving {author} right by 1 space")
+                    character.move_horizontal(1, 1)
+                    
+                settings = SettingsManager()
+                if settings.get_setting("show_command_notifications"):
+                    notification_manager.add_command_notification(author, f"RIGHT{spaces if spaces > 1 else ''}", (character.x, character.y))
 
-            # Handle MegaTNT (New Subscriber)
-            if mega_tnt_queue:
-                author = mega_tnt_queue.pop(0)
+            # Handle subscriber celebrations (gem showers instead of TNT)
+            if subscriber_celebration_queue:
+                author = subscriber_celebration_queue.pop(0)
                 print(f"Spawning MegaTNT for {author} (New Subscriber)")
                 new_megatnt = MegaTnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
                       texture_atlas, atlas_items, sound_manager, owner_name=author)
@@ -800,152 +777,144 @@ def game():
                 last_tnt_spawn = current_time
 
             # Handle Superchat/Supersticker TNT
-            if tnt_superchat_queue:
-                author, text = tnt_superchat_queue.pop(0)
-                print(f"Spawning TNT for {author} (Superchat: {text})")
-                last_tnt_spawn = current_time
-                for _ in range(config["TNT_AMOUNT_ON_SUPERCHAT"]):
-                    new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100, texture_atlas, atlas_items, sound_manager, owner_name=author)
-                    tnt_list.append(new_tnt)
+            # Handle gem shower events (subscriber celebrations)
+            if gem_shower_queue:
+                author = gem_shower_queue.pop(0)
+                print(f"🌟 Gem shower for {author}!")
+                # Add random gems around character
+                for _ in range(5):
+                    gem_types = ["talc_gem", "gypsum_gem", "calcite_gem"]
+                    gem_type = random.choice(gem_types)
+                    offset_x = random.randint(-3, 3)
+                    offset_y = random.randint(-3, 0)
+                    world.gems[character.grid_x + offset_x][character.grid_y + offset_y] = gem_type
 
-            # Handle Fast/Slow command
-            if fast_slow_queue:
-                author, q_fast_slow = fast_slow_queue.pop(0)
-                print(f"Changing speed for {author} to {q_fast_slow}")
-                fast_slow_active = True
-                last_fast_slow = current_time
-                fast_slow = q_fast_slow
-                fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
-                
-                # Add command notification if enabled
-                settings = SettingsManager()
-                if settings.get_setting("show_command_notifications"):
-                    notification_manager.add_command_notification(author, q_fast_slow.lower(), pickaxe.body.position)
+            # Handle tool upgrade requests
+            if tool_upgrade_queue:
+                author, gem_type = tool_upgrade_queue.pop(0)
+                if gem_type in character.gem_inventory and character.gem_inventory[gem_type] >= 10:
+                    # Consume 10 gems for upgrade
+                    character.gem_inventory[gem_type] -= 10
+                    character.upgrade_tool(gem_type)
+                    print(f"🔧 {author} upgraded tool with {gem_type}!")
+                    
+                    # Add upgrade notification
+                    settings = SettingsManager()
+                    if settings.get_setting("show_command_notifications"):
+                        notification_manager.add_command_notification(author, f"UPGRADE SUCCESS", (character.x, character.y))
+                else:
+                    print(f"❌ {author} doesn't have enough {gem_type} for upgrade (need 10)")
 
-            # Handle Big pickaxe command
-            if big_queue:
-                author = big_queue.pop(0)
-                print(f"Making pickaxe big for {author}")
-                pickaxe.enlarge(enlarge_duration)
-                last_enlarge = current_time + enlarge_duration
-                enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
-                
-                # Add command notification if enabled
-                settings = SettingsManager()
-                if settings.get_setting("show_command_notifications"):
-                    notification_manager.add_command_notification(author, "big", pickaxe.body.position)
+            # Handle hourly events (special rewards)
+            if hourly_event_queue:
+                event_name = hourly_event_queue.pop(0)
+                print(f"⏰ Hourly event: {event_name}")
+                # Give player rare gems for playing long sessions
+                character.tool_efficiency *= 1.2  # 20% efficiency boost for the hour
+                print(f"🎉 Efficiency boost! Now {character.tool_efficiency:.2f}x")
 
-            # Handle Pickaxe type command
-            if pickaxe_queue:
-                author, pickaxe_type = pickaxe_queue.pop(0)
-                print(f"Changing pickaxe for {author} to {pickaxe_type}")
-                pickaxe.pickaxe(pickaxe_type, texture_atlas, atlas_items)
-                last_random_pickaxe = current_time
-                random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
-                
-                # Add command notification if enabled
-                settings = SettingsManager()
-                if settings.get_setting("show_command_notifications"):
-                    command_name = pickaxe_type.replace("_pickaxe", "")
-                    notification_manager.add_command_notification(author, command_name, pickaxe.body.position)
+            # Handle efficiency boost events (replacing old "big" command)
+            if gem_shower_queue:  # Reuse gem shower for special boosts
+                pass  # Already handled above
 
-            # Handle Rainbow command
+            # Handle power-up activations (future feature)
+            if powerup_queue:
+                author, powerup_type = powerup_queue.pop(0)
+                print(f"🌟 {author} activated {powerup_type} power-up!")
+                # TODO: Implement power-up effects (fruits, vegetables, flowers)
+
+            # Handle Rainbow command (visual effect for character)
             if rainbow_queue:
                 author = rainbow_queue.pop(0)
-                print(f"Activating rainbow mode for {author}")
-                pickaxe.activate_rainbow_mode(15000)  # 15 seconds
+                print(f"🌈 {author} activated rainbow mode!")
+                character.activate_rainbow_mode(15000)
 
-            # Handle Shield command
+            # Handle Shield command (temporary invincibility)
             if shield_queue:
                 author = shield_queue.pop(0)
-                print(f"Activating shield for {author}")
-                pickaxe.activate_shield(10000)  # 10 seconds
+                print(f"🛡️ {author} activated shield!")
+                character.activate_shield(10000)
 
-            # Handle Freeze command
+            # Handle Freeze command (pause digging temporarily)
             if freeze_queue:
                 author = freeze_queue.pop(0)
-                print(f"Freezing pickaxe for {author}")
-                # Temporarily reduce gravity and add upward force
-                old_velocity = pickaxe.body.velocity
-                pickaxe.body.velocity = (old_velocity.x * 0.1, -200)  # Slow and slight upward force
+                print(f"🧊 {author} activated freeze!")
+                character.activate_freeze(5000)
 
-            # Handle Golden Ore Shower (Follower Milestones)
-            if golden_ore_shower_queue:
-                milestone = golden_ore_shower_queue.pop(0)
-                print(f"🌟 GOLDEN ORE SHOWER! {milestone}")
-                # Spawn multiple golden ores around pickaxe
-                for _ in range(20):
-                    x_offset = random.randint(-300, 300)
-                    y_offset = random.randint(-200, -50)
-                    # Create golden blocks that drop gold when broken
-                    hud.amounts['gold_ingot'] += random.randint(5, 15)
+            # Handle Gem Shower (Follower Milestones)
+            if gem_shower_queue:
+                milestone = gem_shower_queue.pop(0)
+                print(f"💎 GEM SHOWER! {milestone}")
+                # Give player random gems for milestone
+                gem_types = ['topaz_gem', 'quartz_gem', 'apatite_gem', 'fluorite_gem']
+                for _ in range(10):
+                    gem_type = random.choice(gem_types)
+                    character.collect_gem(gem_type)
 
-            # Handle Rainbow Explosions (Subscriber Celebrations)  
-            if rainbow_explosion_queue:
-                event_name = rainbow_explosion_queue.pop(0)
-                print(f"🌈 RAINBOW EXPLOSION! {event_name}")
-                # Create spectacular rainbow explosions
+            # Handle Subscriber Celebrations
+            if subscriber_celebration_queue:
+                event_name = subscriber_celebration_queue.pop(0)
+                print(f"🎉 SUBSCRIBER CELEBRATION! {event_name}")
+                # Give player bonus gems and efficiency boost
+                gem_types = ['diamond_gem', 'corundum_gem', 'topaz_gem']
                 for _ in range(5):
-                    x_offset = random.randint(-200, 200)
-                    y_offset = random.randint(-150, -50)
-                    from explosion import Explosion
-                    rainbow_explosion = Explosion(
-                        pickaxe.body.position.x + x_offset,
-                        pickaxe.body.position.y + y_offset,
-                        75, texture_atlas, atlas_items
-                    )
-                    # Make it rainbow colored
-                    for particle in rainbow_explosion.particles:
-                        hue = random.randint(0, 360)
-                        color = pygame.Color(0)
-                        color.hsva = (hue, 100, 100, 100)
-                        particle.color = color
-                    explosions.append(rainbow_explosion)
+                    gem_type = random.choice(gem_types)
+                    character.collect_gem(gem_type)
+                character.tool_efficiency *= 1.5  # Temporary efficiency boost
 
             # Handle Hourly Events
             if hourly_event_queue:
                 event_name = hourly_event_queue.pop(0)
                 print(f"⏰ HOURLY SPECIAL EVENT! {event_name}")
-                # Random special hourly events
-                event_type = random.choice(["mega_tnt_shower", "diamond_rain", "speed_boost", "giant_pickaxe"])
-                if event_type == "mega_tnt_shower":
-                    for _ in range(3):
-                        new_megatnt = MegaTnt(space, pickaxe.body.position.x + random.randint(-200, 200), 
-                                            pickaxe.body.position.y - random.randint(100, 300),
-                                            texture_atlas, atlas_items, sound_manager, owner_name="Hourly Event")
-                        tnt_list.append(new_megatnt)
-                elif event_type == "diamond_rain":
-                    hud.amounts['diamond'] += random.randint(10, 25)
-                elif event_type == "speed_boost":
-                    fast_slow_active = True
-                    fast_slow = "Fast"
-                    last_fast_slow = current_time
-                elif event_type == "giant_pickaxe":
-                    pickaxe.enlarge(20000)  # 20 seconds of giant pickaxe
+                # Give player special hourly rewards
+                gem_types = ['diamond_gem', 'corundum_gem']
+                for _ in range(15):
+                    gem_type = random.choice(gem_types)
+                    character.collect_gem(gem_type)
+                character.tool_efficiency *= 2.0  # Double efficiency for an hour
+                print(f"🎉 Hourly efficiency boost! Now {character.tool_efficiency:.2f}x")
 
 
-        # Delete chunks
-        clean_chunks(start_chunk_y)
+        # Draw world blocks in visible area
+        visible_range = 25  # Blocks around character horizontally
+        start_x = character.grid_x - visible_range
+        end_x = character.grid_x + visible_range
+        start_y = max(0, character.grid_y - 10)  # Above character
+        end_y = character.grid_y + 20  # Below character
+        
+        for x in range(start_x, end_x):
+            for y in range(start_y, end_y):
+                # Draw blocks
+                block_type = world.get_block_at(x, y)
+                if block_type:
+                    screen_x = (x * BLOCK_SIZE) - camera.offset_x
+                    screen_y = (y * BLOCK_SIZE) - camera.offset_y
+                    
+                    # Simple colored rectangle for now (will add textures later)
+                    color = get_block_color(block_type)
+                    pygame.draw.rect(internal_surface, color, 
+                                   (screen_x, screen_y, BLOCK_SIZE, BLOCK_SIZE))
+                    
+                    # Draw outline for rocks
+                    if "rock" in block_type:
+                        pygame.draw.rect(internal_surface, (0, 0, 0), 
+                                       (screen_x, screen_y, BLOCK_SIZE, BLOCK_SIZE), 2)
+                
+                # Draw gems
+                gem_type = world.get_gem_at(x, y)
+                if gem_type:
+                    screen_x = (x * BLOCK_SIZE) - camera.offset_x
+                    screen_y = (y * BLOCK_SIZE) - camera.offset_y
+                    
+                    # Draw gem as a sparkly circle
+                    gem_color = get_gem_color(gem_type)
+                    center_x = screen_x + BLOCK_SIZE // 2
+                    center_y = screen_y + BLOCK_SIZE // 2
+                    pygame.draw.circle(internal_surface, gem_color, (center_x, center_y), 12)
+                    pygame.draw.circle(internal_surface, (255, 255, 255), (center_x, center_y), 12, 2)
 
-        # Draw blocks in visible chunks
-        for chunk_x in range(-1, 2):
-            for chunk_y in range(start_chunk_y, end_chunk_y):
-                for y in range(CHUNK_HEIGHT):
-                    for x in range(CHUNK_WIDTH):
-                        block = get_block(chunk_x, chunk_y, x, y, texture_atlas, atlas_items, space)
-
-                        if block == None:
-                            continue
-
-                        block.update(space, hud)
-                        block.draw(internal_surface, camera)
-
-        # Draw pickaxe
-        pickaxe.draw(internal_surface, camera)
-
-        # Draw TNT
-        for tnt in tnt_list:
-            tnt.draw(internal_surface, camera)
+        # Draw character
+        character.draw(internal_surface, camera)
 
         # Draw particles
         for explosion in explosions:
@@ -955,11 +924,8 @@ def game():
         # Optionally, remove explosions that have no particles left:
         explosions = [e for e in explosions if e.particles]
 
-        # Draw weather effects
-        weather_system.draw(internal_surface, camera, settings_manager)
-
-        # Draw HUD
-        hud.draw(internal_surface, pickaxe.body.position.y, fast_slow_active, fast_slow, settings_manager)
+        # Draw HUD with character reference for gem inventory
+        hud.draw(internal_surface, character.y, True, current_dig_speed, settings_manager, character)
 
         # Scale internal surface to fit the resized window
         scaled_surface = pygame.transform.smoothscale(internal_surface, (window_width, window_height))
