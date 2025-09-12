@@ -3,6 +3,7 @@ import pygame
 import pymunk
 import pymunk.pygame_util
 from youtube import get_live_stream, get_new_live_chat_messages, get_live_chat_id, get_subscriber_count, validate_live_stream_id, get_live_streams
+from smart_subscriber_estimator import SmartSubscriberEstimator
 from config import config
 from atlas import create_texture_atlas
 from pathlib import Path
@@ -17,9 +18,12 @@ import threading
 import random
 from hud import Hud
 from settings import SettingsManager
-from weather import WeatherSystem
+# from weather import WeatherSystem  # Removed for performance
 import datetime
 from notifications import NotificationManager
+from competitive_system import competitive_system
+from realtime_chat import AsyncRealtimeChat
+from like_tracker import like_tracker
 
 # Track key states
 key_t_pressed = False
@@ -33,8 +37,11 @@ followers = None
 last_follower_milestone = 0
 last_hour_checked = datetime.datetime.now().hour
 
+# Smart subscriber estimation
+subscriber_estimator = SmartSubscriberEstimator()
+
 if config["CHAT_CONTROL"] == True:
-    print("Checking for live stream...")
+    # print("Checking for live stream...")  # Removed for performance
 
     # First try specific live stream ID if provided
     if config["LIVESTREAM_ID"] is not None and config["LIVESTREAM_ID"] != "":
@@ -67,7 +74,7 @@ if config["CHAT_CONTROL"] == True:
 
     # get chat id from live stream
     if live_stream is not None:
-        print("Fetching live chat ID...")
+        # print("Fetching live chat ID...")  # Removed for performance
         live_chat_id = get_live_chat_id(live_stream["id"])
 
     if live_chat_id is None:
@@ -77,7 +84,7 @@ if config["CHAT_CONTROL"] == True:
 
     # get subscribers count
     if(config["CHANNEL_ID"] is not None and config["CHANNEL_ID"] != ""):
-        print("Fetching subscribers count...")
+        # print("Fetching subscribers count...")  # Removed for performance
         subscribers = get_subscriber_count(config["CHANNEL_ID"])
 
     if subscribers is None:
@@ -94,124 +101,98 @@ if config["CHAT_CONTROL"] == True:
             last_follower_milestone = (followers // 100) * 100
             print("Follower count approximation:", followers)
 
-# Queues for chat
-tnt_queue = []
-tnt_superchat_queue = []
-fast_slow_queue = []
-big_queue = []
-pickaxe_queue = []
+# Initialize realtime chat and competitive system
+realtime_chat = AsyncRealtimeChat(competitive_system)
+
+# Command execution queue (populated by realtime chat)
+command_execution_queue = []
+
+# Special event queues
 mega_tnt_queue = []
-rainbow_queue = []
-shield_queue = []
-freeze_queue = []
 golden_ore_shower_queue = []
-rainbow_explosion_queue = []
 hourly_event_queue = []
+likes_tnt_queue = []  # Queue for TNT from likes
 
-async def handle_youtube_poll():
-    global subscribers, followers, last_follower_milestone # Use global to modify the variable
+def on_chat_command(author: str, command: str, result: dict):
+    """Callback when a chat command is processed"""
+    global command_execution_queue
+    
+    if result['success']:
+        # Add to execution queue with result info
+        command_execution_queue.append({
+            'author': author,
+            'command': command,
+            'result': result,
+            'timestamp': time.time()
+        })
+        
+        # Show possession change in console
+        if result.get('new_possessor'):
+            print(f"⚔️ {result['new_possessor']} takes control with {command}!")
+    else:
+        # Command failed due to cooldown - show notification in game
+        if result.get('reason') == 'cooldown' and result.get('remaining_seconds'):
+            # This will be handled in the game loop where notification_manager exists
+            command_execution_queue.append({
+                'author': author,
+                'command': command,
+                'result': result,
+                'cooldown_notification': True,
+                'timestamp': time.time()
+            })
+        print(f"⏳ {author} on cooldown for {command}: {result['remaining_seconds']:.0f}s remaining")
 
-    if subscribers is not None:
-        new_subscribers = get_subscriber_count(config["CHANNEL_ID"])
-        if new_subscribers is not None and new_subscribers > subscribers:
-            mega_tnt_queue.append("New Subscriber") # Add to mega tnt queue
-            rainbow_explosion_queue.append("New Subscriber Rainbow") # Add rainbow explosion
-            subscribers = new_subscribers # Update subscriber count
+# Register the callback
+realtime_chat.add_event_callback(on_chat_command)
 
-    # Check follower milestones
-    if followers is not None and config["CHANNEL_ID"] is not None:
-        from youtube import get_channel_stats
-        stats = get_channel_stats(config["CHANNEL_ID"])
-        if stats and 'viewCount' in stats:
-            current_followers = int(stats['viewCount']) // 1000
-            current_milestone = (current_followers // 100) * 100
-            if current_milestone > last_follower_milestone:
-                golden_ore_shower_queue.append(f"{current_milestone} Followers")
-                last_follower_milestone = current_milestone
-                followers = current_followers
+async def handle_subscriber_check():
+    """Check for subscriber updates and likes"""
+    global subscribers, followers, last_follower_milestone, subscriber_estimator
+    
+    try:
+        if subscribers is not None:
+            new_subscribers = get_subscriber_count(config["CHANNEL_ID"])
+            if new_subscribers is not None:
+                had_big_jump = subscriber_estimator.update_actual_count(new_subscribers)
+                
+                if new_subscribers > subscribers:
+                    diff = new_subscribers - subscribers
+                    if had_big_jump and diff >= 100:
+                        print(f"🎉 BIG SUBSCRIBER JUMP: +{diff} subs!")
+                        for i in range(min(5, diff // 20)):
+                            mega_tnt_queue.append("Subscriber Wave")
+                    else:
+                        mega_tnt_queue.append("New Subscriber")
+                    subscribers = new_subscribers
+        
+        if subscriber_estimator.should_trigger_estimated_sub():
+            print("✨ Estimated new subscriber")
+            mega_tnt_queue.append("New Subscriber")
 
-    # Check for hourly events
-    current_hour = datetime.datetime.now().hour
-    if current_hour != last_hour_checked:
-        hourly_event_queue.append(f"Hourly Event {current_hour}:00")
-        last_hour_checked = current_hour
+        # Check for new likes on the video
+        if config.get("LIVESTREAM_ID") and like_tracker.should_check_likes():
+            from youtube import get_video_statistics
+            stats = get_video_statistics(config["LIVESTREAM_ID"])
+            if stats:
+                has_new_likes, new_like_count = like_tracker.update_like_count(stats["likeCount"])
+                if has_new_likes:
+                    # Queue TNT spawns for new likes
+                    notification_manager.add_like_achievement(f"+{new_like_count} likes!")
 
-    new_messages = get_new_live_chat_messages(live_chat_id)
-
-    for message in new_messages:
-        author = message["author"]
-        text = message["message"]
-        is_superchat = message["sc_details"] is not None
-        is_supersticker = message["ss_details"] is not None
-
-        text_lower = text.lower()
-
-        # Check for "tnt" command (add author to regular tnt_queue) - Only English "tnt"
-        if "tnt" in text_lower:
-            if author not in tnt_queue:
-                tnt_queue.append(author)
-                print(f"Added {author} to regular TNT queue")
-
-        # Check for Superchat/Supersticker (add to superchat tnt queue)
-        if is_superchat or is_supersticker:
-            if author not in [entry[0] for entry in tnt_superchat_queue]:
-                 tnt_superchat_queue.append((author, text))
-                 print(f"Added {author} to Superchat TNT queue")
-
-        if "fast" in text.lower() and author not in [entry[0] for entry in fast_slow_queue]:
-            fast_slow_queue.append((author, "Fast"))
-            print(f"Added {author} to Fast/Slow queue (Fast)")
-        elif "slow" in text.lower() and author not in [entry[0] for entry in fast_slow_queue]:
-            fast_slow_queue.append((author, "Slow"))
-            print(f"Added {author} to Fast/Slow queue (Slow)")
-
-        if "big" in text.lower() and author not in big_queue:
-            big_queue.append(author)
-            print(f"Added {author} to Big queue")
-
-        # Check for pickaxe commands (add author and pickaxe type to pickaxe_queue)
-        if "wood" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "wooden_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (wooden_pickaxe)")
-        elif "stone" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "stone_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (stone_pickaxe)")
-        elif "iron" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "iron_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (iron_pickaxe)")
-        elif "gold" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "golden_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (golden_pickaxe)")
-        elif "diamond" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "diamond_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (diamond_pickaxe)")
-        elif "netherite" in text_lower:
-             if author not in [entry[0] for entry in pickaxe_queue]:
-                 pickaxe_queue.append((author, "netherite_pickaxe"))
-                 print(f"Added {author} to Pickaxe queue (netherite_pickaxe)")
-
-        # Check for rainbow command
-        if "rainbow" in text_lower and author not in rainbow_queue:
-            rainbow_queue.append(author)
-            print(f"Added {author} to Rainbow queue")
-
-        # Check for shield command  
-        if "shield" in text_lower and author not in shield_queue:
-            shield_queue.append(author)
-            print(f"Added {author} to Shield queue")
-
-        # Check for freeze command
-        if "freeze" in text_lower and author not in freeze_queue:
-            freeze_queue.append(author)
-            print(f"Added {author} to Freeze queue")
-
-    # print the queue counts (optional, for debugging)
-    # print(f"Queues: TNT={len(tnt_queue)}, Superchat TNT={len(tnt_superchat_queue)}, Fast/Slow={len(fast_slow_queue)}, Big={len(big_queue)}, Pickaxe={len(pickaxe_queue)}, MegaTNT={len(mega_tnt_queue)}")
+        # Check follower milestones
+        if followers is not None and config["CHANNEL_ID"] is not None:
+            from youtube import get_channel_stats
+            stats = get_channel_stats(config["CHANNEL_ID"])
+            if stats and 'viewCount' in stats:
+                current_followers = int(stats['viewCount']) // 1000
+                current_milestone = (current_followers // 100) * 100
+                if current_milestone > last_follower_milestone:
+                    golden_ore_shower_queue.append(f"{current_milestone} Followers")
+                    last_follower_milestone = current_milestone
+                    followers = current_followers
+                    
+    except Exception as e:
+        print(f"ERROR in subscriber check: {e}")
 
 def start_event_loop(loop):
     asyncio.set_event_loop(loop)
@@ -219,10 +200,19 @@ def start_event_loop(loop):
 
 # Create a new event loop
 asyncio_loop = asyncio.new_event_loop()
-# Start it in a daemon thread so it doesn’t block shutdown
+# Start it in a daemon thread so it doesn't block shutdown
 threading.Thread(target=start_event_loop, args=(asyncio_loop,), daemon=True).start()
 
+# Start the realtime chat system if chat control is enabled
+if config["CHAT_CONTROL"] and live_stream is not None:
+    # print("Starting realtime chat processor...")  # Removed for performance
+    # Clear any old cooldowns from before the game started
+    competitive_system.reset_for_new_game()
+    realtime_chat.start()
+
 def game():
+    global last_hour_checked
+    
     window_width = int(INTERNAL_WIDTH / 2)
     window_height = int(INTERNAL_HEIGHT / 2)
 
@@ -318,18 +308,20 @@ def game():
     fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
     last_fast_slow = pygame.time.get_ticks()
 
-    # HUD
+    # HUD with competitive system integration
     hud = Hud(texture_atlas, atlas_items)
+    hud.competitive_system = competitive_system
 
     # Explosions
     explosions = []
 
-    # Settings and Weather
+    # Settings
     settings_manager = SettingsManager()
-    weather_system = WeatherSystem()
+    # weather_system = WeatherSystem()  # Removed for performance
     
-    # Notifications
-    from notifications import notification_manager
+    # Initialize notifications with competitive system
+    from notifications import NotificationManager
+    notification_manager = NotificationManager(competitive_system=competitive_system)
 
     # Youtube
     yt_poll_interval = 1000 * config["YT_POLL_INTERVAL_SECONDS"]
@@ -342,6 +334,10 @@ def game():
     # Youtupe chat queues
     queues_pop_interval = 1000 * config["QUEUES_POP_INTERVAL_SECONDS"]
     last_queues_pop = pygame.time.get_ticks()
+    
+    # Like TNT spawning timer (2 seconds between spawns)
+    like_tnt_spawn_interval = 2000  # 2 seconds in milliseconds
+    last_like_tnt_spawn = pygame.time.get_ticks()
 
     # Main loop
     running = True
@@ -357,6 +353,10 @@ def game():
                     notification_manager.add_subscriber_achievement("TestUser123")
                 elif event.key == pygame.K_F2:  # Press F2 to test like achievement  
                     notification_manager.add_like_achievement("LikeUser456")
+                    # Also simulate getting 1 like for testing
+                    has_new, count = like_tracker.update_like_count(
+                        (like_tracker.current_like_count or 0) + 1
+                    )
                 elif event.key == pygame.K_F3:  # Press F3 to test anonymous subscriber
                     notification_manager.add_subscriber_achievement()
             elif settings_manager.handle_input(event):
@@ -403,7 +403,7 @@ def game():
 
         # Check if it's time to spawn a new TNT (regular random spawn)
         current_time = pygame.time.get_ticks()
-        if settings_manager.get_setting("auto_tnt_spawn") and (not config["CHAT_CONTROL"] or (not tnt_queue and not tnt_superchat_queue and not mega_tnt_queue)) and current_time - last_tnt_spawn >= tnt_spawn_interval:
+        if settings_manager.get_setting("auto_tnt_spawn") and (not config["CHAT_CONTROL"] or (not command_execution_queue and not mega_tnt_queue)) and current_time - last_tnt_spawn >= tnt_spawn_interval:
              # Example: spawn TNT at position (400, 300) with a given texture
              new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
                texture_atlas, atlas_items, sound_manager)
@@ -413,21 +413,21 @@ def game():
              tnt_spawn_interval = 1000 * random.uniform(config["TNT_SPAWN_INTERVAL_SECONDS_MIN"], config["TNT_SPAWN_INTERVAL_SECONDS_MAX"])
 
         # Check if it's time to change the pickaxe (random)
-        if settings_manager.get_setting("auto_pickaxe_change") and (not config["CHAT_CONTROL"] or not pickaxe_queue) and current_time - last_random_pickaxe >= random_pickaxe_interval:
+        if settings_manager.get_setting("auto_pickaxe_change") and (not config["CHAT_CONTROL"] or not command_execution_queue) and current_time - last_random_pickaxe >= random_pickaxe_interval:
             pickaxe.random_pickaxe(texture_atlas, atlas_items)
             last_random_pickaxe = current_time
             # New random interval for the next pickaxe change
             random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
 
         # Check if it's time for pickaxe enlargement (random)
-        if settings_manager.get_setting("auto_size_change") and (not config["CHAT_CONTROL"] or not big_queue) and current_time - last_enlarge >= enlarge_interval:
+        if settings_manager.get_setting("auto_size_change") and (not config["CHAT_CONTROL"] or not command_execution_queue) and current_time - last_enlarge >= enlarge_interval:
             pickaxe.enlarge(enlarge_duration)
             last_enlarge = current_time + enlarge_duration
             # New random interval for the next enlargement
             enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
 
         # Check if it's time to change speed (random)
-        if settings_manager.get_setting("auto_speed_change") and (not config["CHAT_CONTROL"] or not fast_slow_queue) and current_time - last_fast_slow >= fast_slow_interval and not fast_slow_active:
+        if settings_manager.get_setting("auto_speed_change") and (not config["CHAT_CONTROL"] or not command_execution_queue) and current_time - last_fast_slow >= fast_slow_interval and not fast_slow_active:
             # Randomly choose between "fast" and "slow"
             fast_slow = random.choice(["Fast", "Slow"])
             print("Changing speed to:", fast_slow)
@@ -443,129 +443,132 @@ def game():
         for tnt in tnt_list:
             tnt.update(tnt_list, explosions, camera)
 
-        # Update weather system
-        weather_system.update(settings_manager)
+        # Weather system removed for performance
 
         # Update settings (including auto performance mode)
         settings_manager.update(clock.get_fps())
 
-        # Poll Yotutube api
-        if live_chat_id is not None and current_time - last_yt_poll >= yt_poll_interval:
-            print("Polling YouTube API...")
+        # Check for subscriber updates periodically
+        if config["CHANNEL_ID"] and current_time - last_yt_poll >= yt_poll_interval:
             last_yt_poll = current_time
-            asyncio.run_coroutine_threadsafe(handle_youtube_poll(), asyncio_loop)
+            asyncio.run_coroutine_threadsafe(handle_subscriber_check(), asyncio_loop)
+            
+        # Check for hourly events
+        current_hour = datetime.datetime.now().hour
+        if current_hour != last_hour_checked:
+            hourly_event_queue.append(f"Hourly Event {current_hour}:00")
+            last_hour_checked = current_hour
 
-        # Process chat queues
-        if config["CHAT_CONTROL"] and current_time - last_queues_pop >= queues_pop_interval:
+        # Process command execution queue from realtime chat
+        if config["CHAT_CONTROL"] and command_execution_queue:
+            # Process one command per frame for smooth gameplay
+            cmd_data = command_execution_queue.pop(0)
+            author = cmd_data['author']
+            command = cmd_data['command']
+            result = cmd_data['result']
+            
+            # Check if this is a cooldown notification
+            if cmd_data.get('cooldown_notification'):
+                # Show cooldown notification
+                notification_manager.add_cooldown_notification(
+                    author, command, result['remaining_seconds']
+                )
+            else:
+                # Show notifications
+                if settings_manager.get_setting("show_command_notifications"):
+                    # Always show command notification
+                    notification_manager.add_command_notification(author, command, pickaxe.body.position)
+                    
+                    # Only show possession change if it actually changed
+                    if result.get('new_possessor'):
+                        notification_manager.add_possession_change(author, command)
+                
+                # Execute the command
+                if command == "tnt":
+                    # Download profile picture if enabled
+                    if settings_manager.get_setting("download_profile_pictures"):
+                        from youtube import get_user_profile_picture
+                        from profile_picture_manager import profile_picture_manager
+                        import threading
+                        
+                        def download_pic():
+                            pic_url = get_user_profile_picture(author)
+                            if pic_url:
+                                profile_picture_manager.download_profile_picture(author, pic_url)
+                        
+                        threading.Thread(target=download_pic, daemon=True).start()
+                    
+                    new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
+                                 texture_atlas, atlas_items, sound_manager, owner_name=author)
+                    tnt_list.append(new_tnt)
+                    last_tnt_spawn = current_time
+                    
+                elif command == "superchat_tnt":
+                    # Spawn multiple TNT for superchats
+                    for _ in range(config["TNT_AMOUNT_ON_SUPERCHAT"]):
+                        new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
+                                     texture_atlas, atlas_items, sound_manager, owner_name=author)
+                        tnt_list.append(new_tnt)
+                    last_tnt_spawn = current_time
+                    
+                elif command == "fast":
+                    fast_slow_active = True
+                    fast_slow = "Fast"
+                    last_fast_slow = current_time
+                    fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], 
+                                                              config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
+                    
+                elif command == "slow":
+                    fast_slow_active = True
+                    fast_slow = "Slow"
+                    last_fast_slow = current_time
+                    fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], 
+                                                              config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
+                    
+                elif command == "big":
+                    pickaxe.enlarge(enlarge_duration)
+                    last_enlarge = current_time + enlarge_duration
+                    enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], 
+                                                            config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
+                    
+                elif command.endswith("_pickaxe"):
+                    pickaxe.pickaxe(command, texture_atlas, atlas_items)
+                    last_random_pickaxe = current_time
+                    random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], 
+                                                                   config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
+                    
+                # elif command == "rainbow":
+                #     pickaxe.activate_rainbow_mode(15000)  # 15 seconds
+                    
+                # elif command == "shield":
+                #     pickaxe.activate_shield(10000)  # 10 seconds
+                    
+                elif command == "freeze":
+                    # Temporarily reduce gravity and add upward force
+                    old_velocity = pickaxe.body.velocity
+                    pickaxe.body.velocity = (old_velocity.x * 0.1, -200)  # Slow and slight upward force
+                    
+                elif command == "new_member":
+                    # Members get special treatment
+                    for _ in range(3):
+                        mega_tnt_queue.append(f"Member: {author}")
+                    golden_ore_shower_queue.append(f"New Member: {author}")
+                    
+                elif command == "new_subscriber":
+                    mega_tnt_queue.append(author)
+                
+        # Process special event queues
+        if current_time - last_queues_pop >= queues_pop_interval:
             last_queues_pop = current_time
-
-            # Handle regular TNT from chat command
-            if tnt_queue:
-                author = tnt_queue.pop(0)
-                print(f"Spawning regular TNT for {author} (from chat command)")
-                
-                # Download profile picture if enabled
-                settings = SettingsManager()
-                if settings.get_setting("download_profile_pictures"):
-                    from youtube import get_user_profile_picture
-                    from profile_picture_manager import profile_picture_manager
-                    import threading
-                    
-                    def download_pic():
-                        pic_url = get_user_profile_picture(author)
-                        if pic_url:
-                            profile_picture_manager.download_profile_picture(author, pic_url)
-                    
-                    # Download in background to avoid blocking
-                    threading.Thread(target=download_pic, daemon=True).start()
-                
-                new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
-                             texture_atlas, atlas_items, sound_manager, owner_name=author)
-                tnt_list.append(new_tnt)
-                last_tnt_spawn = current_time
-                
-                # Add command notification if enabled
-                if settings.get_setting("show_command_notifications"):
-                    notification_manager.add_command_notification(author, "tnt", pickaxe.body.position)
-
-            # Handle MegaTNT (New Subscriber)
+            
+            # Handle MegaTNT queue
             if mega_tnt_queue:
                 author = mega_tnt_queue.pop(0)
-                print(f"Spawning MegaTNT for {author} (New Subscriber)")
+                print(f"Spawning MegaTNT for {author}")
                 new_megatnt = MegaTnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100,
-                      texture_atlas, atlas_items, sound_manager, owner_name=author)
+                                    texture_atlas, atlas_items, sound_manager, owner_name=author)
                 tnt_list.append(new_megatnt)
                 last_tnt_spawn = current_time
-
-            # Handle Superchat/Supersticker TNT
-            if tnt_superchat_queue:
-                author, text = tnt_superchat_queue.pop(0)
-                print(f"Spawning TNT for {author} (Superchat: {text})")
-                last_tnt_spawn = current_time
-                for _ in range(config["TNT_AMOUNT_ON_SUPERCHAT"]):
-                    new_tnt = Tnt(space, pickaxe.body.position.x, pickaxe.body.position.y - 100, texture_atlas, atlas_items, sound_manager, owner_name=author)
-                    tnt_list.append(new_tnt)
-
-            # Handle Fast/Slow command
-            if fast_slow_queue:
-                author, q_fast_slow = fast_slow_queue.pop(0)
-                print(f"Changing speed for {author} to {q_fast_slow}")
-                fast_slow_active = True
-                last_fast_slow = current_time
-                fast_slow = q_fast_slow
-                fast_slow_interval = 1000 * random.uniform(config["FAST_SLOW_INTERVAL_SECONDS_MIN"], config["FAST_SLOW_INTERVAL_SECONDS_MAX"])
-                
-                # Add command notification if enabled
-                settings = SettingsManager()
-                if settings.get_setting("show_command_notifications"):
-                    notification_manager.add_command_notification(author, q_fast_slow.lower(), pickaxe.body.position)
-
-            # Handle Big pickaxe command
-            if big_queue:
-                author = big_queue.pop(0)
-                print(f"Making pickaxe big for {author}")
-                pickaxe.enlarge(enlarge_duration)
-                last_enlarge = current_time + enlarge_duration
-                enlarge_interval = 1000 * random.uniform(config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MIN"], config["PICKAXE_ENLARGE_INTERVAL_SECONDS_MAX"])
-                
-                # Add command notification if enabled
-                settings = SettingsManager()
-                if settings.get_setting("show_command_notifications"):
-                    notification_manager.add_command_notification(author, "big", pickaxe.body.position)
-
-            # Handle Pickaxe type command
-            if pickaxe_queue:
-                author, pickaxe_type = pickaxe_queue.pop(0)
-                print(f"Changing pickaxe for {author} to {pickaxe_type}")
-                pickaxe.pickaxe(pickaxe_type, texture_atlas, atlas_items)
-                last_random_pickaxe = current_time
-                random_pickaxe_interval = 1000 * random.uniform(config["RANDOM_PICKAXE_INTERVAL_SECONDS_MIN"], config["RANDOM_PICKAXE_INTERVAL_SECONDS_MAX"])
-                
-                # Add command notification if enabled
-                settings = SettingsManager()
-                if settings.get_setting("show_command_notifications"):
-                    command_name = pickaxe_type.replace("_pickaxe", "")
-                    notification_manager.add_command_notification(author, command_name, pickaxe.body.position)
-
-            # Handle Rainbow command
-            if rainbow_queue:
-                author = rainbow_queue.pop(0)
-                print(f"Activating rainbow mode for {author}")
-                pickaxe.activate_rainbow_mode(15000)  # 15 seconds
-
-            # Handle Shield command
-            if shield_queue:
-                author = shield_queue.pop(0)
-                print(f"Activating shield for {author}")
-                pickaxe.activate_shield(10000)  # 10 seconds
-
-            # Handle Freeze command
-            if freeze_queue:
-                author = freeze_queue.pop(0)
-                print(f"Freezing pickaxe for {author}")
-                # Temporarily reduce gravity and add upward force
-                old_velocity = pickaxe.body.velocity
-                pickaxe.body.velocity = (old_velocity.x * 0.1, -200)  # Slow and slight upward force
 
             # Handle Golden Ore Shower (Follower Milestones)
             if golden_ore_shower_queue:
@@ -578,27 +581,7 @@ def game():
                     # Create golden blocks that drop gold when broken
                     hud.amounts['gold_ingot'] += random.randint(5, 15)
 
-            # Handle Rainbow Explosions (Subscriber Celebrations)  
-            if rainbow_explosion_queue:
-                event_name = rainbow_explosion_queue.pop(0)
-                print(f"🌈 RAINBOW EXPLOSION! {event_name}")
-                # Create spectacular rainbow explosions
-                for i in range(5):
-                    x_offset = random.randint(-200, 200)
-                    y_offset = random.randint(-150, -50)
-                    from explosion import Explosion
-                    rainbow_explosion = Explosion(
-                        pickaxe.body.position.x + x_offset,
-                        pickaxe.body.position.y + y_offset,
-                        75, texture_atlas, atlas_items
-                    )
-                    # Make it rainbow colored
-                    for particle in rainbow_explosion.particles:
-                        hue = random.randint(0, 360)
-                        color = pygame.Color(0)
-                        color.hsva = (hue, 100, 100, 100)
-                        particle.color = color
-                    explosions.append(rainbow_explosion)
+            # Rainbow explosions removed for performance - was causing 1 fps issues
 
             # Handle Hourly Events
             if hourly_event_queue:
@@ -620,6 +603,31 @@ def game():
                     last_fast_slow = current_time
                 elif event_type == "giant_pickaxe":
                     pickaxe.enlarge(20000)  # 20 seconds of giant pickaxe
+        
+        # Handle TNT from likes (spawn 1 every 2 seconds if pending) - MOVED OUTSIDE queue processing
+        if current_time - last_like_tnt_spawn >= like_tnt_spawn_interval:
+            if like_tracker.consume_tnt_reward():
+                last_like_tnt_spawn = current_time
+                
+                # Format like count for display with proper pluralization
+                like_count = like_tracker.current_like_count or 0
+                if like_count >= 10000:
+                    like_display = f"{like_count//1000}k Likes"
+                elif like_count >= 1000:
+                    like_display = f"{like_count/1000:.1f}k Likes"
+                elif like_count == 1:
+                    like_display = "1 Like"
+                else:
+                    like_display = f"{like_count} Likes"
+                    
+                # Spawn TNT for like
+                new_tnt = Tnt(space, 
+                             pickaxe.body.position.x + random.randint(-50, 50), 
+                             pickaxe.body.position.y - random.randint(100, 200),
+                             texture_atlas, atlas_items, sound_manager, 
+                             owner_name=like_display)
+                tnt_list.append(new_tnt)
+                print(f"💣 Spawning TNT from like! ({like_tracker.get_pending_rewards()} remaining)")
 
 
         # Delete chunks
@@ -635,7 +643,19 @@ def game():
                         if block == None:
                             continue
 
+                        # Check if block was broken and award points
+                        old_broken = getattr(block, 'broken', False)
                         block.update(space, hud)
+                        new_broken = getattr(block, 'broken', False)
+                        
+                        # Award points if block was just broken
+                        if not old_broken and new_broken:
+                            block_type = getattr(block, 'block_type', 'stone')
+                            result = competitive_system.on_block_broken(block_type)
+                            if result['possessor'] and result['points_earned'] > 0:
+                                # Could show points popup here if desired
+                                pass
+                        
                         block.draw(internal_surface, camera)
 
         # Draw pickaxe
@@ -653,8 +673,7 @@ def game():
         # Optionally, remove explosions that have no particles left:
         explosions = [e for e in explosions if e.particles]
 
-        # Draw weather effects
-        weather_system.draw(internal_surface, camera, settings_manager)
+        # Weather effects removed for performance
 
         # Draw HUD
         hud.draw(internal_surface, pickaxe.body.position.y, fast_slow_active, fast_slow, settings_manager)
@@ -672,7 +691,7 @@ def game():
         # Save progress
         if current_time - last_save_progress >= save_progress_interval:
             # Save the game state or progress here
-            print("Saving progress...")
+                # print("Saving progress...")  # Removed for performance
             last_save_progress = current_time
             # Save progress to logs folder
             log_dir = Path(__file__).parent.parent / "logs"

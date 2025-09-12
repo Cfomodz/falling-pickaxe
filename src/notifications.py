@@ -117,8 +117,9 @@ class CommandNotification:
         surface.blit(text_surface, (self.x, self.y))
 
 class TopPlayersTracker:
-    def __init__(self):
-        self.player_activity = {}
+    def __init__(self, competitive_system=None):
+        self.competitive_system = competitive_system
+        self.player_activity = {}  # Legacy activity tracking
         self.last_reset = time.time()
         self.reset_interval = 300  # 5 minutes
         
@@ -132,21 +133,30 @@ class TopPlayersTracker:
         """Check if we need to reset the leaderboard"""
         current_time = time.time()
         if current_time - self.last_reset >= self.reset_interval:
+            # Don't reset competitive scores, only activity
             self.player_activity.clear()
             self.last_reset = current_time
             
     def get_top_players(self, count=5):
-        """Get top players sorted by activity"""
-        return sorted(self.player_activity.items(), key=lambda x: x[1], reverse=True)[:count]
+        """Get top players by competitive score if available, otherwise by activity"""
+        if self.competitive_system:
+            # Get from competitive system (returns: [(player, score, blocks)])
+            top_from_system = self.competitive_system.possession_tracker.get_top_players(count)
+            # Convert to format expected by UI: [(player, score)]
+            return [(player, score) for player, score, blocks in top_from_system]
+        else:
+            # Fall back to activity tracking
+            return sorted(self.player_activity.items(), key=lambda x: x[1], reverse=True)[:count]
         
     def get_time_until_reset(self):
         """Get time until next reset in seconds"""
         return max(0, self.reset_interval - (time.time() - self.last_reset))
 
 class RightPanel:
-    def __init__(self, width=120):  # Much smaller width
+    def __init__(self, width=120, competitive_system=None):  # Much smaller width
         self.width = width
-        self.top_players = TopPlayersTracker()
+        self.competitive_system = competitive_system
+        self.top_players = TopPlayersTracker(competitive_system)
         self.commands = [
             "tnt", "fast", "slow", "big", "wood", "stone", 
             "iron", "gold", "diamond", "netherite", "rainbow", 
@@ -185,14 +195,14 @@ class RightPanel:
                     x, y, w, h = atlas_items[category][item]
                     atlas_items[category][item] = (x * BLOCK_SCALE_FACTOR, y * BLOCK_SCALE_FACTOR, w * BLOCK_SCALE_FACTOR, h * BLOCK_SCALE_FACTOR)
             
-            # Cache the icons we need
+            # Cache the icons we need (2x larger)
             mega_tnt_rect = pygame.Rect(atlas_items["block"]["mega_tnt"])
             self.texture_cache["mega_tnt"] = pygame.transform.scale(
-                texture_atlas.subsurface(mega_tnt_rect), (12, 12))
+                texture_atlas.subsurface(mega_tnt_rect), (24, 24))
             
             tnt_rect = pygame.Rect(atlas_items["block"]["tnt"])
             self.texture_cache["tnt"] = pygame.transform.scale(
-                texture_atlas.subsurface(tnt_rect), (12, 12))
+                texture_atlas.subsurface(tnt_rect), (24, 24))
                 
             self.texture_cache_loaded = True
         except:
@@ -201,33 +211,120 @@ class RightPanel:
     def draw(self, surface, screen_width, screen_height):
         panel_x = screen_width - self.width
         
-        # Draw panel background (smaller and more transparent for performance)
-        panel_surface = pygame.Surface((self.width, screen_height))
-        panel_surface.fill((64, 64, 64))
-        panel_surface.set_alpha(180)  # Less opacity for performance
-        surface.blit(panel_surface, (panel_x, 0))
+        # Draw fading panel background
+        fade_start = int(screen_height * 0.33)  # Start fade at 1/3 down
+        fade_end = int(screen_height * 0.45)    # End fade at 45% down
+        
+        # Solid panel for top 1/3
+        if fade_start > 0:
+            panel_surface_top = pygame.Surface((self.width, fade_start))
+            panel_surface_top.fill((64, 64, 64))
+            panel_surface_top.set_alpha(180)
+            surface.blit(panel_surface_top, (panel_x, 0))
+        
+        # Fading section from 33% to 45%
+        if fade_end > fade_start:
+            fade_height = fade_end - fade_start
+            for i in range(fade_height):
+                fade_progress = i / fade_height  # 0.0 to 1.0
+                alpha = int(180 * (1.0 - fade_progress))  # 180 to 0
+                
+                if alpha > 0:
+                    line_surface = pygame.Surface((self.width, 1))
+                    line_surface.fill((64, 64, 64))
+                    line_surface.set_alpha(alpha)
+                    surface.blit(line_surface, (panel_x, fade_start + i))
         
         y_offset = 8  # Start closer to top
         
-        # TOP PLAYERS FIRST (at the top)
-        time_left = int(self.top_players.get_time_until_reset())
-        minutes = time_left // 60
-        seconds = time_left % 60
-        
-        players_title = minecraft_font.render_with_shadow(f"TOP ({minutes:02d}:{seconds:02d})", (255, 255, 0), (0, 0, 0), "tiny")
+        # Show if competitive mode is active
+        if self.competitive_system:
+            title_text = "COMPETITIVE"
+            title_color = (255, 100, 100)
+        else:
+            title_text = "TOP PLAYERS"
+            title_color = (255, 255, 0)
+            
+        players_title = minecraft_font.render_with_shadow(title_text, title_color, (0, 0, 0), "small")
         surface.blit(players_title, (panel_x + 3, y_offset))
         y_offset += players_title.get_height() + 3
         
-        # Show top 5 players (no profile pics for performance)
+        # Get current possessor info
+        current_possessor = None
+        possession_duration = 0
+        if self.competitive_system:
+            game_state = self.competitive_system.get_game_state()
+            current_possessor = game_state['current_possessor']
+            possession_duration = int(game_state['possession_duration'])
+        
+        # Show top 3 players with scores
         top_players = self.top_players.get_top_players(5)
-        for i, (username, activity) in enumerate(top_players):
+        shown_players = set()
+        
+        for i in range(min(3, len(top_players))):
+            username, score = top_players[i]
+            shown_players.add(username)
             rank_color = self.get_rank_color(i)
             
-            # Truncate username for small panel
-            display_name = username[:6] + "..." if len(username) > 6 else username
-            player_text = minecraft_font.render_with_shadow(f"{i+1}.{display_name}:{activity}", rank_color, (0, 0, 0), "tiny")
-            surface.blit(player_text, (panel_x + 3, y_offset))
+            # Check if this is the current possessor
+            is_possessor = (username == current_possessor)
+            if is_possessor:
+                # Use glowing gold for possessor
+                rank_color = (255, 215, 0)
+            
+            # Format player name and score
+            display_name = username[:8] if len(username) > 8 else username
+            if self.competitive_system:
+                # Show points for competitive mode
+                player_line = f"{display_name}: {score}pts"
+            else:
+                # Show activity count for legacy mode
+                player_line = f"{display_name}: {score}"
+                
+            player_text = minecraft_font.render_with_shadow(player_line, rank_color, (0, 0, 0), "small")
+            
+            # Right justify - position text so it can extend beyond panel to the left
+            text_x = panel_x + self.width - 3 - player_text.get_width()
+            surface.blit(player_text, (text_x, y_offset))
             y_offset += player_text.get_height() + 1
+            
+            # Show timer under possessor
+            if is_possessor:
+                timer_text = f"[{possession_duration}s]"  # Timer emoji replaced with brackets
+                timer_surface = minecraft_font.render_with_shadow(timer_text, (200, 200, 200), (0, 0, 0), "small")
+                timer_x = panel_x + self.width - 3 - timer_surface.get_width()
+                surface.blit(timer_surface, (timer_x, y_offset))
+                y_offset += timer_surface.get_height() + 2
+        
+        # If current possessor is not in top 3, show them as #4
+        if current_possessor and current_possessor not in shown_players:
+            # Add separator line or spacing
+            y_offset += 3
+            
+            # Find possessor's score
+            possessor_score = 0
+            if self.competitive_system:
+                possessor_score = self.competitive_system.possession_tracker.player_scores.get(current_possessor, 0)
+            
+            # Display possessor as 4th
+            display_name = current_possessor[:8] if len(current_possessor) > 8 else current_possessor
+            if self.competitive_system:
+                player_line = f"{display_name}: {possessor_score}pts"
+            else:
+                player_line = f"{display_name}: 0"
+            
+            # Use gold color for current possessor
+            player_text = minecraft_font.render_with_shadow(player_line, (255, 215, 0), (0, 0, 0), "small")
+            text_x = panel_x + self.width - 3 - player_text.get_width()
+            surface.blit(player_text, (text_x, y_offset))
+            y_offset += player_text.get_height() + 1
+            
+            # Show timer
+            timer_text = f"[{possession_duration}s]"  # Timer emoji replaced with brackets
+            timer_surface = minecraft_font.render_with_shadow(timer_text, (200, 200, 200), (0, 0, 0), "small")
+            timer_x = panel_x + self.width - 3 - timer_surface.get_width()
+            surface.blit(timer_surface, (timer_x, y_offset))
+            y_offset += timer_surface.get_height() + 2
         
         y_offset += 10  # Space between sections
         
@@ -236,37 +333,52 @@ class RightPanel:
         
         if "mega_tnt" in self.texture_cache:
             surface.blit(self.texture_cache["mega_tnt"], (panel_x + 3, y_offset))
-            sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "tiny")
-            surface.blit(sub_text, (panel_x + 18, y_offset))
-            y_offset += 16
+            sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "small")
+            surface.blit(sub_text, (panel_x + 35, y_offset))  # Moved further right for larger icon
+            y_offset += 26  # Increased for larger icon
             
             # Show recent subscriber name if available
             if self.recent_subscriber and pygame.time.get_ticks() < self.subscriber_display_timer:
-                sub_name = minecraft_font.render_with_shadow(f"{self.recent_subscriber[:8]}", (255, 255, 100), (0, 0, 0), "tiny")
+                sub_name = minecraft_font.render_with_shadow(f"{self.recent_subscriber[:8]}", (255, 255, 100), (0, 0, 0), "small")
                 surface.blit(sub_name, (panel_x + 3, y_offset))
                 y_offset += sub_name.get_height() + 2
         else:
-            sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "tiny")
+            sub_text = minecraft_font.render_with_shadow("Sub=MEGA", (255, 100, 100), (0, 0, 0), "small")
             surface.blit(sub_text, (panel_x + 3, y_offset))
             y_offset += sub_text.get_height() + 3
             
-        # Like reward
-        like_text = minecraft_font.render_with_shadow("Like", (100, 255, 100), (0, 0, 0), "tiny")
+        # Like reward with actual like count if available
+        from like_tracker import like_tracker
+        like_stats = like_tracker.get_like_stats()
+        
+        if like_stats["current_likes"] > 0:
+            like_text = minecraft_font.render_with_shadow(f"Likes: {like_stats['current_likes']}", (100, 255, 100), (0, 0, 0), "small")
+        else:
+            like_text = minecraft_font.render_with_shadow("Like", (100, 255, 100), (0, 0, 0), "small")
         surface.blit(like_text, (panel_x + 3, y_offset))
         y_offset += like_text.get_height() + 1
         
+        # Show pending TNT from likes if any
+        if like_stats["pending_tnt"] > 0:
+            pending_text = minecraft_font.render_with_shadow(f"TNT: {like_stats['pending_tnt']}", (255, 165, 0), (0, 0, 0), "small")
+            surface.blit(pending_text, (panel_x + 3, y_offset))
+            y_offset += pending_text.get_height() + 2
+        
         if "tnt" in self.texture_cache:
-            surface.blit(self.texture_cache["tnt"], (panel_x + 3, y_offset))
-            like_count = minecraft_font.render_with_shadow("=10", (100, 255, 100), (0, 0, 0), "tiny")
-            surface.blit(like_count, (panel_x + 18, y_offset))
-            y_offset += 16
+            like_count = minecraft_font.render_with_shadow("10X", (100, 255, 100), (0, 0, 0), "small")
+            surface.blit(like_count, (panel_x + 3, y_offset))
+            surface.blit(self.texture_cache["tnt"], (panel_x + 35, y_offset))  # Moved further right
+            y_offset += 26  # Increased for larger icon
         else:
-            like_count = minecraft_font.render_with_shadow("=10 TNT", (100, 255, 100), (0, 0, 0), "tiny")
+            like_count = minecraft_font.render_with_shadow("10 TNT", (100, 255, 100), (0, 0, 0), "small")
             surface.blit(like_count, (panel_x + 3, y_offset))
             y_offset += like_count.get_height() + 6
         
+        # Add gap before COMMANDS section
+        y_offset += 10  # Extra line break spacing
+        
         # COMMANDS section (simplified, single column)
-        commands_title = minecraft_font.render_with_shadow("Commands:", (255, 255, 255), (0, 0, 0), "tiny")
+        commands_title = minecraft_font.render_with_shadow("Commands:", (255, 255, 255), (0, 0, 0), "small")
         surface.blit(commands_title, (panel_x + 3, y_offset))
         y_offset += commands_title.get_height() + 3
         
@@ -274,7 +386,7 @@ class RightPanel:
         important_commands = ["tnt", "fast", "slow", "big", "wood", "iron", "gold", "diamond"]
         for command in important_commands:
             command_color = self.get_command_color(command)
-            command_text = minecraft_font.render_with_shadow(f"•{command}", command_color, (0, 0, 0), "tiny")
+            command_text = minecraft_font.render_with_shadow(f"•{command}", command_color, (0, 0, 0), "small")
             surface.blit(command_text, (panel_x + 3, y_offset))
             y_offset += command_text.get_height() + 1
             
@@ -309,12 +421,16 @@ class RightPanel:
             return (255, 255, 255)  # White
 
 class NotificationManager:
-    def __init__(self):
+    def __init__(self, competitive_system=None):
         self.notifications = []
         self.achievements = []
-        self.right_panel = RightPanel()
+        self.competitive_system = competitive_system
+        self.right_panel = RightPanel(competitive_system=competitive_system)
         self.last_update = 0
         self.update_interval = 100  # Update every 100ms instead of every frame
+        self.possession_notifications = []  # Track possession changes
+        self.cooldown_notifications = []  # Track cooldown notifications
+        self.last_screen_height = 0  # Track screen height for positioning
         
     def add_command_notification(self, username, command, pickaxe_pos):
         """Add a notification near the pickaxe"""
@@ -325,8 +441,19 @@ class NotificationManager:
         notification = CommandNotification(username, command, x, y)
         self.notifications.append(notification)
         
-        # Add to leaderboard
+        # Add to leaderboard (legacy activity tracking)
         self.right_panel.add_player_activity(username)
+        
+    def add_possession_change(self, username, command):
+        """Add a possession change notification"""
+        # Position will be set dynamically in draw() based on screen height
+        notification = Achievement(
+            username,
+            "Controls the Pickaxe",
+            50, 150,  # Will be repositioned in draw()
+            play_sound=False  # Don't play sound for every possession change
+        )
+        self.possession_notifications.append(notification)
         
     def add_subscriber_achievement(self, username=None):
         """Add achievement popup for new subscriber"""
@@ -373,10 +500,21 @@ class NotificationManager:
         # Update achievements  
         self.achievements = [a for a in self.achievements if a.update()]
         
+        # Update possession notifications
+        self.possession_notifications = [n for n in self.possession_notifications if n.update()]
+        
+        # Update cooldown notifications (they auto-remove when timer expires)
+        self.cooldown_notifications = [n for n in self.cooldown_notifications if n['timer'] > 0]
+        for notif in self.cooldown_notifications:
+            notif['timer'] -= self.update_interval
+        
         # Update right panel
         self.right_panel.update()
         
     def draw(self, surface, camera, screen_width, screen_height):
+        # Update screen height tracking
+        self.last_screen_height = screen_height
+        
         # Draw notifications (relative to camera)
         for notification in self.notifications:
             screen_x = notification.x - camera.x
@@ -391,9 +529,103 @@ class NotificationManager:
         # Draw achievements (fixed position on screen)
         for achievement in self.achievements:
             achievement.draw(surface)
+            
+        # Draw possession notifications at 65% down the screen
+        for notification in self.possession_notifications:
+            # Dynamically position based on screen height (add 10px more)
+            notification.target_y = int(screen_height * 0.65) + 10
+            notification.current_y = notification.target_y
+            # Draw with custom sizing for possession notifications
+            self._draw_possession_notification(surface, notification)
+            
+        # Draw cooldown notifications (WoW-style)
+        for notif in self.cooldown_notifications:
+            self._draw_cooldown_notification(surface, notif, screen_width, screen_height)
                 
         # Draw right panel
         self.right_panel.draw(surface, screen_width, screen_height)
+    
+    def add_cooldown_notification(self, username, command, remaining_seconds):
+        """Add a WoW-style cooldown notification"""
+        self.cooldown_notifications.append({
+            'username': username,
+            'command': command,
+            'remaining': int(remaining_seconds),
+            'timer': 1000  # Show for 1 second
+        })
+    
+    def _draw_cooldown_notification(self, surface, notif, screen_width, screen_height):
+        """Draw a WoW-style cooldown notification"""
+        # Position at very bottom of screen (below possession notifications which are at 65%)
+        center_x = screen_width // 2
+        center_y = int(screen_height * 0.90)  # 90% down the screen, at the very bottom
+        
+        # Create semi-transparent red background
+        bg_width = 300
+        bg_height = 80
+        bg_rect = pygame.Rect(center_x - bg_width//2, center_y - bg_height//2, bg_width, bg_height)
+        
+        # Draw background with fade based on timer
+        alpha = min(255, notif['timer'])
+        bg_surface = pygame.Surface((bg_width, bg_height))
+        bg_surface.fill((80, 0, 0))  # Dark red
+        bg_surface.set_alpha(alpha)
+        surface.blit(bg_surface, bg_rect)
+        
+        # Draw border
+        border_color = (255, 50, 50, alpha)  # Bright red
+        pygame.draw.rect(surface, border_color[:3], bg_rect, 3)
+        
+        # Draw "COOLDOWN" text
+        cooldown_text = minecraft_font.render_with_shadow("COOLDOWN", (255, 100, 100), (0, 0, 0), "normal")
+        cooldown_text.set_alpha(alpha)
+        text_x = center_x - cooldown_text.get_width() // 2
+        text_y = center_y - 25
+        surface.blit(cooldown_text, (text_x, text_y))
+        
+        # Draw username, remaining time, and command
+        info_text = f"{notif['username']} {notif['remaining']}s ({notif['command']})"
+        info_surface = minecraft_font.render_with_shadow(info_text, (255, 255, 255), (0, 0, 0), "small")
+        info_surface.set_alpha(alpha)
+        info_x = center_x - info_surface.get_width() // 2
+        info_y = center_y + 5
+        surface.blit(info_surface, (info_x, info_y))
+    
+    def _draw_possession_notification(self, surface, notification):
+        """Draw possession notification with custom text sizing"""
+        if notification.timer <= 0:
+            return
+            
+        # Create achievement background (Minecraft style)
+        bg_width = 320
+        bg_height = 64
+        
+        # Background with border
+        bg_surface = pygame.Surface((bg_width, bg_height))
+        bg_surface.fill((64, 64, 64))  # Dark gray background
+        pygame.draw.rect(bg_surface, (0, 0, 0), bg_surface.get_rect(), 2)  # Black border
+        
+        # Achievement icon (grass block)
+        icon_size = 32
+        icon_surface = pygame.Surface((icon_size, icon_size))
+        icon_surface.fill((34, 139, 34))  # Green color for grass block
+        pygame.draw.rect(icon_surface, (0, 0, 0), icon_surface.get_rect(), 1)
+        bg_surface.blit(icon_surface, (16, 16))
+        
+        # Title text (normal size)
+        title_surface = minecraft_font.render_with_shadow(notification.title, (255, 255, 0), (0, 0, 0), "normal")
+        bg_surface.blit(title_surface, (60, 8))
+        
+        # Description text (small size for possession notifications)
+        desc_surface = minecraft_font.render_with_shadow(notification.description, (255, 255, 255), (0, 0, 0), "small")
+        bg_surface.blit(desc_surface, (60, 32))  # Y position for small text
+        
+        # Apply fade out effect in last second
+        if notification.timer < 1000:
+            alpha = int(255 * (notification.timer / 1000))
+            bg_surface.set_alpha(alpha)
+        
+        surface.blit(bg_surface, (notification.current_x, notification.current_y))
 
-# Global instance
-notification_manager = NotificationManager()
+# Global instance (will be initialized in main.py with competitive system)
+notification_manager = None

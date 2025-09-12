@@ -27,7 +27,7 @@ def rotate_vertices(vertices, angle):
         return rotated_vertices
 
 class Pickaxe:
-    def __init__(self, space, x, y, texture, sound_manager, damage=2, velocity=0, rotation=0, mass=100):
+    def __init__(self, space, x, y, texture, sound_manager, damage=1, velocity=0, rotation=0, mass=100):
         self.texture = texture
         self.original_texture = texture.copy()
         self.velocity = velocity
@@ -109,8 +109,8 @@ class Pickaxe:
         else:
             self.sound_manager.play_sound("stone" + str(random.randint(1, 4)))
             
-        # Screen shake based on impact and pickaxe size
-        shake_intensity = max(2, impact_force * (3 if self.is_enlarged else 1))
+        # Screen shake based on impact and pickaxe size (reduced by 90%)
+        shake_intensity = max(0.2, impact_force * (0.3 if self.is_enlarged else 0.1))  # Reduced by 90%
         if hasattr(self, 'camera_ref'):
             self.camera_ref.shake(15, shake_intensity)
 
@@ -129,42 +129,44 @@ class Pickaxe:
             new_size = (BLOCK_SIZE * 3, BLOCK_SIZE * 3)
             self.texture = pygame.transform.scale(self.texture, new_size)
 
+        # Exponential damage scaling (powers of 2)
         if(pickaxe_name =="wooden_pickaxe"):  
-            self.damage = 2
+            self.damage = 1  # Base damage
         elif(pickaxe_name =="stone_pickaxe"):
-            self.damage = 4
+            self.damage = 2  # 2x wooden
         elif(pickaxe_name =="iron_pickaxe"):
-            self.damage = 6
+            self.damage = 4  # 4x wooden
         elif(pickaxe_name =="golden_pickaxe"):
-            self.damage = 8
+            self.damage = 8  # 8x wooden (gold is special!)
         elif(pickaxe_name =="diamond_pickaxe"):
-            self.damage = 10
+            self.damage = 16  # 16x wooden
         elif(pickaxe_name =="netherite_pickaxe"):
-            self.damage = 12
+            self.damage = 32  # 32x wooden
 
     def pickaxe(self, name, texture_atlas, atlas_items):
         """Set the pickaxe's properties based on its name."""
 
         self.texture = texture_atlas.subsurface(atlas_items["pickaxe"][name])
-        print("Setting pickaxe to:", name)
+        # print("Setting pickaxe to:", name)  # Removed for performance
 
         if self.is_enlarged:
             # Scale up texture
             new_size = (BLOCK_SIZE * 3, BLOCK_SIZE * 3)
             self.texture = pygame.transform.scale(self.texture, new_size)
 
+        # Exponential damage scaling (powers of 2)
         if(name =="wooden_pickaxe"):  
-            self.damage = 2
+            self.damage = 1  # Base damage
         elif(name =="stone_pickaxe"):
-            self.damage = 4
+            self.damage = 2  # 2x wooden
         elif(name =="iron_pickaxe"):
-            self.damage = 6
+            self.damage = 4  # 4x wooden
         elif(name =="golden_pickaxe"):
-            self.damage = 8
+            self.damage = 8  # 8x wooden (gold is special!)
         elif(name =="diamond_pickaxe"):
-            self.damage = 10
+            self.damage = 16  # 16x wooden
         elif(name =="netherite_pickaxe"):
-            self.damage = 12
+            self.damage = 32  # 32x wooden
 
     def update(self):
         """Apply gravity, update movement, check collisions, and rotate."""
@@ -294,7 +296,7 @@ class Pickaxe:
         print("🌈 RAINBOW MODE ACTIVATED!")
         self.rainbow_mode = True
         self.rainbow_timer = pygame.time.get_ticks() + duration
-        self.damage += 5  # Bonus damage in rainbow mode
+        self.damage *= 2  # Double damage in rainbow mode
         
     def update_rainbow_effect(self):
         """Update rainbow color cycling and particle trail."""
@@ -304,7 +306,7 @@ class Pickaxe:
         # Check if rainbow mode should end
         if pygame.time.get_ticks() > self.rainbow_timer:
             self.rainbow_mode = False
-            self.damage -= 5  # Remove bonus damage
+            self.damage = self.damage // 2  # Remove damage bonus
             self.texture = self.original_texture.copy()
             if self.is_enlarged:
                 new_size = (BLOCK_SIZE * 3, BLOCK_SIZE * 3)

@@ -7,10 +7,12 @@ class MinecraftFont:
         # Try to load a Minecraft-style font, fallback to default
         self.font_size = 24
         self.small_font_size = 18
+        self.tiny_font_size = 10  # Add tiny font size - even smaller
         self.large_font_size = 32
 
         self.font = None
         self.small_font = None
+        self.tiny_font = None  # Add tiny font
         self.large_font = None
         self._initialized = False
 
@@ -40,6 +42,7 @@ class MinecraftFont:
                 try:
                     self.font = pygame.font.Font(str(font_path), self.font_size)
                     self.small_font = pygame.font.Font(str(font_path), self.small_font_size)
+                    self.tiny_font = pygame.font.Font(str(font_path), self.tiny_font_size)
                     self.large_font = pygame.font.Font(str(font_path), self.large_font_size)
                     break
                 except:
@@ -54,6 +57,7 @@ class MinecraftFont:
                     try:
                         self.font = pygame.font.SysFont(font_name, self.font_size)
                         self.small_font = pygame.font.SysFont(font_name, self.small_font_size)
+                        self.tiny_font = pygame.font.SysFont(font_name, self.tiny_font_size)
                         self.large_font = pygame.font.SysFont(font_name, self.large_font_size)
                         break
                     except:
@@ -65,6 +69,7 @@ class MinecraftFont:
         if self.font is None:
             self.font = pygame.font.Font(None, self.font_size)
             self.small_font = pygame.font.Font(None, self.small_font_size)
+            self.tiny_font = pygame.font.Font(None, self.tiny_font_size)
             self.large_font = pygame.font.Font(None, self.large_font_size)
 
         self._initialized = True
@@ -81,13 +86,13 @@ class MinecraftFont:
             font_size = 16
 
         # Initialize font if not already done
-        if self.font is None or (size == "small" and self.small_font is None) or (size == "large" and self.large_font is None):
+        if self.font is None or (size == "tiny" and self.tiny_font is None) or (size == "small" and self.small_font is None) or (size == "large" and self.large_font is None):
              self._initialize_fonts()
 
         # Select the appropriate font object based on size
         font_to_use = None
         if size == "tiny":
-            font_to_use = self.small_font # Re-using small_font for tiny to avoid loading another font, adjust if a specific tiny font is needed
+            font_to_use = self.tiny_font  # Use proper tiny font
         elif size == "small":
             font_to_use = self.small_font
         elif size == "large":

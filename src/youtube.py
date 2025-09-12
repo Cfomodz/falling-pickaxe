@@ -99,6 +99,33 @@ def get_live_chat_messages(live_chat_id):
 
 # Global set to track seen message IDs
 seen_messages = set()
+
+# Alternative chat reader instance (no API key needed)
+_alternative_reader = None
+_last_error_time = 0
+
+def get_new_live_chat_messages_alternative(video_id):
+    """Fetch chat messages without API key - uses YouTube's web endpoint"""
+    global _alternative_reader, _last_error_time
+    
+    try:
+        from youtube_chat_alternative import get_alternative_chat_messages
+        messages, _alternative_reader = get_alternative_chat_messages(video_id, _alternative_reader)
+        
+        # Note: empty messages is normal when there are no new messages
+        # Don't treat it as a failure
+        
+        return messages
+    except Exception as e:
+        import time
+        current_time = time.time()
+        # Only show error once per minute to avoid spam
+        if current_time - _last_error_time > 60:
+            print(f"Alternative chat method error: {e}")
+            _last_error_time = current_time
+        # Don't reset reader on every exception - let it try to recover
+        return []
+
 def get_new_live_chat_messages(live_chat_id):
     """Fetch and print only new chat messages (including super chats and super stickers) that haven't been printed before."""
     response = youtube.liveChatMessages().list(
@@ -190,6 +217,30 @@ def get_channel_stats(channel_id):
             return None
     except Exception as e:
         print(f"Error fetching channel stats: {e}")
+        return None
+
+def get_video_statistics(video_id):
+    """Get video statistics including likes, views, comments"""
+    if config["API_KEY"] == "YOUR_API_KEY_HERE" or config["API_KEY"] == "":
+        return None
+    
+    try:
+        request = youtube.videos().list(
+            part="statistics",
+            id=video_id
+        )
+        response = request.execute()
+        
+        if response.get("items"):
+            stats = response["items"][0]["statistics"]
+            return {
+                "likeCount": int(stats.get("likeCount", 0)),
+                "viewCount": int(stats.get("viewCount", 0)),
+                "commentCount": int(stats.get("commentCount", 0))
+            }
+        return None
+    except Exception as e:
+        print(f"Error fetching video statistics: {e}")
         return None
 
 def get_user_profile_picture(username):

@@ -144,7 +144,7 @@ class Tnt:
             
             # Draw username with Minecraft font
             if show_usernames:
-                text_surface = minecraft_font.render_with_shadow(self.owner_name, (255, 255, 0), (0, 0, 0), "small")
+                text_surface = minecraft_font.render_with_shadow(self.owner_name, (255, 255, 0), (0, 0, 0), "large")
                 text_rect = text_surface.get_rect(center=(self.body.position.x - camera.offset_x, self.body.position.y + y_offset - camera.offset_y))
                 screen.blit(text_surface, text_rect)
 
@@ -223,11 +223,16 @@ class MegaTnt(Tnt):
         overlay_rect.x -= camera.offset_x
         screen.blit(rotated_overlay, overlay_rect)
 
-        # Draw owner name above MegaTNT
+        # Draw owner name above MegaTNT (with larger font!)
         if self.owner_name:
-            text_surface = self.font.render(self.owner_name, True, (255, 255, 255))
-            text_rect = text_surface.get_rect(center=(self.body.position.x - camera.offset_x, self.body.position.y - 55 - camera.offset_y))
-            shadow = self.font.render(self.owner_name, True, (0, 0, 0))
-            shadow_rect = shadow.get_rect(center=(self.body.position.x + 1 - camera.offset_x, self.body.position.y - 54 - camera.offset_y))
-            screen.blit(shadow, shadow_rect)
-            screen.blit(text_surface, text_rect)
+            from minecraft_font import minecraft_font
+            from settings import SettingsManager
+            
+            settings = SettingsManager()
+            show_usernames = settings.get_setting("show_usernames_on_tnt")
+            
+            if show_usernames:
+                # Use "large" size for MegaTNT since it's bigger
+                text_surface = minecraft_font.render_with_shadow(self.owner_name, (255, 255, 0), (0, 0, 0), "large")
+                text_rect = text_surface.get_rect(center=(self.body.position.x - camera.offset_x, self.body.position.y - 65 - camera.offset_y))
+                screen.blit(text_surface, text_rect)

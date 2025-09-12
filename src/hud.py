@@ -42,10 +42,10 @@ class Hud:
             "emerald": 0,
         }
         
-        # Combo system
-        self.combo_count = 0
-        self.combo_timer = 0
-        self.combo_multiplier = 1.0
+        # Combo system removed for performance
+        
+        # Competitive system reference
+        self.competitive_system = None
 
         self.position = position
         self.icon_size = (64, 64)  # Size to draw each icon
@@ -53,6 +53,7 @@ class Hud:
 
         # Initialize a font (using the default font and size 24)
         self.font = pygame.font.Font(None, 64)
+        self.small_font = pygame.font.Font(None, 32)
 
     def update_amounts(self, new_amounts):
         """
@@ -61,17 +62,7 @@ class Hud:
         """
         self.amounts.update(new_amounts)
         
-    def add_combo(self):
-        """Add to combo counter and reset timer."""
-        self.combo_count += 1
-        self.combo_timer = pygame.time.get_ticks() + 3000  # 3 second combo window
-        self.combo_multiplier = min(5.0, 1.0 + (self.combo_count * 0.1))  # Cap at 5x
-        
-    def update_combo(self):
-        """Update combo system - reset if timer expires."""
-        if pygame.time.get_ticks() > self.combo_timer and self.combo_count > 0:
-            self.combo_count = 0
-            self.combo_multiplier = 1.0
+    # Combo methods removed for performance
 
     def draw(self, screen, pickaxe_y, fast_slow_active, fast_slow, settings_manager=None):
         """
@@ -122,16 +113,7 @@ class Hud:
         fast_slow_y = y + 2 * self.spacing + fast_slow_surface.get_height()
         screen.blit(fast_slow_surface, (fast_slow_x, fast_slow_y))
         
-        # Update and draw combo counter
-        self.update_combo()
-        show_combo = settings_manager is None or settings_manager.get_setting("combo_display")
-        if self.combo_count > 0 and show_combo:
-            combo_text = f"COMBO: {self.combo_count}x ({self.combo_multiplier:.1f}x)"
-            combo_color = (255, 255, 0) if self.combo_count >= 10 else (255, 255, 255)
-            combo_surface = render_text_with_outline(combo_text, self.font, combo_color, (0, 0, 0), outline_width=2)
-            combo_x = x + self.spacing
-            combo_y = fast_slow_y + 2 * self.spacing + combo_surface.get_height()
-            screen.blit(combo_surface, (combo_x, combo_y))
+        # Combo display removed for performance
 
             
 
